@@ -524,7 +524,7 @@ impl CZSC {
         self.bars_ubi.to_vec()
     }
 
-    /// 获取已完成的笔列表（与 bi_list 相同，为兼容 czsc 库）
+    /// 获取已完成笔：bars_ubi 少于 5 根时，排除 bi_list 的末笔。
     #[getter]
     fn finished_bis(&self) -> Vec<BI> {
         self.get_finished_bis()
