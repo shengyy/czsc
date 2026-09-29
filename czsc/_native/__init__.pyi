@@ -166,6 +166,13 @@ class BI:
 
 @typing.final
 class BarGenerator:
+    r"""
+    将已完成的基础 K 线合成为其它周期。
+    基础分钟线保留调用方的原始 dt（包括开盘竞价标签），不重新对齐；
+    派生周期仍按市场收线表归桶，日、周、月等基础周期仍按原日期口径归一。
+    目标周期不得小于基础周期：高周期 K 线无法还原低周期的独立观测。
+    分钟目标周期还必须是分钟基础周期的整数倍，避免将一根基础 K 线拆入不同桶。
+    """
     @property
     def symbol(self) -> typing.Optional[builtins.str]:
         r"""
@@ -250,7 +257,7 @@ class CZSC:
     @property
     def finished_bis(self) -> builtins.list[BI]:
         r"""
-        获取已完成的笔列表（与 bi_list 相同，为兼容 czsc 库）
+        获取已完成笔：bars_ubi 少于 5 根时，排除 bi_list 的末笔。
         """
     @property
     def zs_list(self) -> builtins.list[ZS]:
@@ -323,17 +330,14 @@ class CZSC:
         更新K线数据
         """
     def __repr__(self) -> builtins.str: ...
+    def __getstate__(self) -> bytes:
+        r"""
+        Serialize exact Rust analysis state, including the pending tail revision.
+        """
+    def __setstate__(self, state: bytes) -> None: ...
     def __reduce__(self) -> typing.Any:
         r"""
-        Pickle 支持 —— `__reduce__` 返回 ``(CZSC, (fixed_point_bars, max_bi_num))``。
-        
-        `update_bar` 会丢弃 dt 小于当前 first-BI 起始时间的旧 bar
-        （参见上面的 `bars_raw.drain` 块），因此刚构造出来的 CZSC 的
-        `bars_raw` 可能仍然和「再分析一次后到达的不动点」不同。这里多
-        跑一次 `CZSC::new`，让其在序列化前收敛 —— 保证即使 CzscSignals
-        在 `kas[freq]` 里嵌套了 CZSC，`pickle.dumps(restored) ==
-        pickle.dumps(obj)` 也是逐字节相等的（Phase A 的
-        `restored.__getstate__() == obj.__getstate__()` 断言依赖这一点）。
+        Pickle restores full state; retained RawBars alone cannot reconstruct it.
         """
 
 @typing.final
