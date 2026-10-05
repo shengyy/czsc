@@ -35,6 +35,8 @@ CZSC（缠中说禅技术分析工具）是基于缠中说禅理论的综合性�
 
 ## 常用开发命令
 
+Rust 工具链入口和安装边界见 [README · 开发环境搭建](README.md#开发环境搭建)；仓库声明以 `rust-toolchain.toml` 为准。
+
 ### UV 包管理 (项目使用UV管理依赖)
 ```bash
 # 同步依赖并安装开发工具（仅在 pyproject.toml / uv.lock 变更时跑）
