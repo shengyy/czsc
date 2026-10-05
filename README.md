@@ -90,7 +90,7 @@ uv pip install czsc
 从源码构建（需要 Rust 工具链和 maturin）：
 
 ```bash
-# 安装 Rust：https://rustup.rs/
+# Rust 工具链准备见下方“开发环境搭建”
 # 安装 maturin
 pip install maturin
 
@@ -279,7 +279,17 @@ czsc 在权重回测、权重落地与 TA 算子一致性校验上依赖以下�
 
 ## 开发环境搭建
 
+Rust 使用工作站统一安装的官方 [rustup](https://rustup.rs/)，复用用户级工具链和 Cargo 下载缓存。项目仅通过
+[`rust-toolchain.toml`](rust-toolchain.toml) 声明所需 channel、profile 和 components；进入仓库后，rustup 会按
+[官方工具链选择规则](https://rust-lang.github.io/rustup/overrides.html#the-toolchain-file)选择它们。
+不要在仓库内另装 Rust、设置私有 `CARGO_HOME` / `RUSTUP_HOME`，或用目录 override 覆盖仓库声明。
+编译产物仍位于本仓库 `target/`；工具链共享不等于跨项目共用构建目录。
+
 ```bash
+# 确认使用仓库声明的用户级 Rust 工具链
+rustup show active-toolchain
+rustup which cargo
+
 # 使用 UV 管理依赖（推荐）
 uv sync --extra dev
 
