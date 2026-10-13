@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -101,17 +102,30 @@ def test_wheel_install_in_clean_venv(tmp_path: Path) -> None:
         text=True,
     )
     subprocess.run(["uv", "pip", "sync", "--python", str(py), str(requirements)], check=True)
-    subprocess.run(["uv", "pip", "install", "--python", str(py), "--no-deps", str(wheels[-1])], check=True)
+    # Remove the printing dependency so the wheel metadata must restore it.
+    # The runtime export only constrains resolution; a dev extra cannot mask an omission.
+    subprocess.run(["uv", "pip", "uninstall", "--python", str(py), "tabulate"], check=True)
+    subprocess.run(
+        ["uv", "pip", "install", "--python", str(py), "--constraint", str(requirements), str(wheels[-1])],
+        check=True,
+    )
     subprocess.run([str(py), str(REPO_ROOT / "scripts/check_python_environment.py")], check=True)
     smoke = subprocess.run(
         [
             str(py),
             "-c",
-            (
-                "import sys, czsc, czsc._native; from pathlib import Path; "
-                "assert Path(czsc._native.__file__).is_relative_to(Path(sys.prefix)); "
-                "print(czsc.CZSC.__module__)"
-            ),
+            textwrap.dedent("""\
+                import sys
+                from pathlib import Path
+                import czsc
+                import czsc._native
+                from czsc.mock import generate_symbol_kines
+                from czsc.utils import print_df_sample
+                assert Path(czsc._native.__file__).is_relative_to(Path(sys.prefix))
+                print(czsc.CZSC.__module__)
+                frame = generate_symbol_kines("WHEEL_SAMPLE", "日线", "20240101", "20240115", seed=42)
+                print_df_sample(frame[["symbol"]], 2)
+                """),
         ],
         cwd=tmp_path,
         capture_output=True,
@@ -119,3 +133,4 @@ def test_wheel_install_in_clean_venv(tmp_path: Path) -> None:
     )
     assert smoke.returncode == 0, smoke.stderr
     assert "czsc" in smoke.stdout
+    assert smoke.stdout.count("WHEEL_SAMPLE") == 2

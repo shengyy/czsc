@@ -32,6 +32,31 @@ from czsc import envs as envs_mod
 from czsc.envs import get_max_bi_num, get_min_bi_len, get_verbose
 
 
+@pytest.mark.parametrize(
+    ("name", "getter", "default"),
+    [("czsc_min_bi_len", get_min_bi_len, 6), ("czsc_max_bi_num", get_max_bi_num, 50)],
+)
+def test_numeric_env_priority_and_parsing(monkeypatch, name, getter, default):
+    monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv(name.upper(), raising=False)
+    assert getter() == default
+    monkeypatch.setenv(name, "8.5")
+    assert getter() == 8
+    monkeypatch.setenv(name.upper(), "9.0")
+    assert getter() == 9
+    monkeypatch.setenv(name.upper(), "invalid")
+    assert getter(11) == 11
+    with pytest.raises(ValueError):
+        getter()
+
+
+def test_verbose_env_priority(monkeypatch):
+    monkeypatch.setenv("czsc_verbose", "yes")
+    monkeypatch.setenv("CZSC_VERBOSE", "0")
+    assert get_verbose() is False
+    assert get_verbose(True) is True
+
+
 class TestRetiredHelpers:
     """反向断言：确认所有已废弃的 helper 已经被移除。"""
 

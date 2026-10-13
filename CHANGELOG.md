@@ -11,6 +11,7 @@
 
 ### Fixed
 
+- `print_df_sample` now declares its `tabulate` runtime dependency, including in built wheels. Environment defaults, nullable Feishu sheet selection and research/replay result classes have accurate type annotations without changing runtime behavior.
 - `resample_to_daily` promotes both datetime join keys to a common precision, supporting ns/us/ms/s inputs on pandas 3 without rounding dates or changing the snapshot rows carried forward. The output remains datetime without a fixed unit guarantee.
 
 ### Breaking Changes
@@ -19,6 +20,7 @@
 
 ### Development
 
+- Linux wheel builds check the selected interpreter inside the container. The musllinux cross image explicitly installs `.python-version` with uv before building, instead of assuming the host setup or image provides it.
 - `.python-version` selects the interpreter for development, CI, type checking, stub generation and packaging. `uv.lock` selects exact dependencies (currently pandas 3.0.5); workflows and environment checks consume these files instead of maintaining version matrices or falling back to another interpreter.
 - Existing audit tools now resolve in a locked dependency group. Wheel smoke installs locked dependencies and imports the built wheel outside the checkout.
 

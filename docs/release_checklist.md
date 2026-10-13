@@ -136,11 +136,14 @@ CI 对 8 个业务 crate 跑原生测试；仅排除启用 `pyo3/extension-modul
 
 ## 5. 本地 Wheel 验证（覆盖 CI smoke 盲区）
 
+Linux 构建在容器内读取 `.python-version` 并执行解释器 guard。`maturin-action` 的默认 `rust-musl-cross` 镜像仅预装 Ubuntu 系统 Python，因此 musllinux lane 使用 action 已安装的 uv 显式安装声明版本，再把找到的绝对路径同时交给 maturin 和 `PYO3_PYTHON`。manylinux lane 使用镜像内的对应版本；两者均不可回退到宿主或旧解释器。
+
 CI smoke 覆盖 Linux x86_64 / macOS arm64 / Windows x64。**macOS x86_64、Linux aarch64 与 musllinux 仍需单独验证**：
 
 - [ ] `uv run maturin build --release --strip` 产物可被 `pip install --no-deps` 安装并 `import czsc` 成功
 - [ ] 如本次有触及 PyO3 边界（参数 / 返回值序列化、Arrow IPC、GIL release）：用 docker `--platform linux/arm64` 或 alpine 镜像本地拉一遍 wheel 安装 + import
 - [ ] Wheel 文件名版本符合 `czsc-<X.Y.Z>-cp310-abi3-<plat>.whl`（仅表示 ABI 下界；安装范围由 wheel `Requires-Python` 决定）
+- [ ] 隔离安装后实际调用 `print_df_sample`；wheel smoke 会先移除 `tabulate`，再按锁约束安装 wheel，验证运行时依赖由包声明补齐
 
 ---
 

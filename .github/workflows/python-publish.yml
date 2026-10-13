@@ -84,7 +84,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           manylinux: ${{ matrix.platform.manylinux }}
           maturin-version: v${{ steps.python.outputs.maturin-version }}
-          args: --release --strip --out dist -i "${{ matrix.platform.manylinux != '' && format('python{0}', steps.python.outputs.python-version) || steps.python.outputs.python-path }}"
+          args: --release --strip --out dist -i "${{ matrix.platform.manylinux != '' && '$PYO3_PYTHON' || steps.python.outputs.python-path }}"
           sccache: 'true'
           # ring 0.17.x cross-compile 到 aarch64 manylinux2014 时，
           # manylinux2014 镜像里的 cross-gcc 没把 __ARM_ARCH 宏传给 ASM，
@@ -95,8 +95,16 @@ jobs:
           # 对应 CFLAGS_<triple>），所以无需 case 分支。
           before-script-linux: |
             export CFLAGS_aarch64_unknown_linux_gnu="-D__ARM_ARCH=8"
-            # setup-python runs on the host; the container needs its own executable.
-            export PYO3_PYTHON="python$(cat .python-version)"
+            # setup-python stays on the host. maturin-action installs uv in the
+            # container, but rust-musl-cross only ships Ubuntu's system Python.
+            if [[ "${{ matrix.platform.manylinux }}" == musllinux* ]]; then
+              uv python install "$(cat .python-version)"
+              PYO3_PYTHON=$(uv python find --managed-python --no-project --no-python-downloads "$(cat .python-version)")
+            else
+              PYO3_PYTHON=$(command -v "python$(cat .python-version)")
+            fi
+            export PYO3_PYTHON
+            "$PYO3_PYTHON" scripts/check_python_environment.py --interpreter-only
 
       - name: List built wheels
         shell: bash
@@ -201,7 +209,9 @@ jobs:
           uv export --locked --no-default-groups --no-emit-project --output-file "$RUNNER_TEMP/runtime.txt"
           uv venv .venv
           uv pip sync --python .venv "$RUNNER_TEMP/runtime.txt"
-          uv pip install --python .venv --no-deps dist/*.whl
+          # Prove this public utility's dependency comes from wheel metadata.
+          uv pip uninstall --python .venv tabulate
+          uv pip install --python .venv --constraint "$RUNNER_TEMP/runtime.txt" dist/*.whl
           uv run --no-sync python scripts/check_python_environment.py
 
       - name: Smoke installed wheel outside the checkout
@@ -213,6 +223,7 @@ jobs:
           "$PYTHON" -c "from czsc import CZSC, RawBar, Freq; print('core imports OK')"
           "$PYTHON" -c "from czsc._native import signals; print('native signals OK:', sorted(dir(signals))[:5])"
           "$PYTHON" -c "import czsc._native.ta as ta; print('rust ta OK:', sorted(dir(ta))[:5])"
+          "$PYTHON" -c "from czsc.mock import generate_symbol_kines; from czsc.utils import print_df_sample; print_df_sample(generate_symbol_kines('SAMPLE', '日线', '20240101', '20240115', seed=42), 2)"
 
   # ------------------------------------------------------------------
   # 4) (optional) Publish to TestPyPI via workflow_dispatch

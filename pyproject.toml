@@ -60,6 +60,7 @@ dependencies = [
     # fig.show() 在浏览器打开或 plot_*(to_html=True) 写 HTML 文件）
     "plotly",
     # 工具库
+    "tabulate",
     "tqdm>=4.66.4",
     "loguru",
     "dill",

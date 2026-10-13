@@ -13,12 +13,21 @@
 from __future__ import annotations
 
 import os
+from typing import overload
 
 # 被视为"真值"的字符串（小写化后比对，覆盖常见写法）
 _VALID_TRUE = {"1", "true", "y", "yes"}
 
 
-def _env(name: str, default: str | None = None) -> str | None:
+@overload
+def _env(name: str) -> str | None: ...
+
+
+@overload
+def _env[T](name: str, default: T) -> str | T: ...
+
+
+def _env[T](name: str, default: T | None = None) -> str | T | None:
     """读取环境变量，依次按 UPPER / lower 大小写降级。"""
     return os.environ.get(name.upper(), os.environ.get(name.lower(), default))
 
