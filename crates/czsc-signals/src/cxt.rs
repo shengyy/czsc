@@ -1,3 +1,4 @@
+use crate::reference::{ReferenceKind, SignalReference};
 use crate::types::TaCache;
 use crate::params::ParamView;
 use crate::utils::cxt::{
@@ -931,11 +932,13 @@ pub fn cxt_third_bs_v230318(c: &CZSC, params: &ParamView, cache: &mut TaCache) -
     let timeperiod = get_usize_param(params, "timeperiod", 34);
     let ma_type = params.str("ma_type", "SMA").to_uppercase();
     let cache_key = format!("{}#{}", ma_type, timeperiod);
-    update_ma_cache(c, &cache_key, &ma_type, timeperiod, cache);
     let k1 = c.freq.to_string();
     let k2 = format!("D{}#{}#{}", di, ma_type, timeperiod);
     let k3 = "BS3辅助V230318";
     let mut v1 = "其他";
+    let reference_key = format!("{k1}_{k2}_{k3}");
+    cache.signal_references.remove(&reference_key);
+    update_ma_cache(c, &cache_key, &ma_type, timeperiod, cache);
 
     if c.bi_list.len() < di + 6 {
         return make_kline_signal_v1(&k1, &k2, k3, v1);
@@ -1004,7 +1007,14 @@ pub fn cxt_third_bs_v230318(c: &CZSC, params: &ParamView, cache: &mut TaCache) -
     if b5.direction == Direction::Up && b5.get_high() < zs_zd && ma_5 < ma_3 && ma_3 < ma_1 {
         v1 = "三卖";
     }
-    make_kline_signal_v1(&k1, &k2, k3, v1)
+    let signals = make_kline_signal_v1(&k1, &k2, k3, v1);
+    if v1 != "其他" {
+        cache.signal_references.insert(reference_key, SignalReference::capture(
+            c, di, bis, &[1, 3], ReferenceKind::B1B3Overlap,
+            (zs_zd, zs_zg),
+        ));
+    }
+    signals
 }
 
 /// cxt_double_zs_V230311：双中枢 BS1 辅助
@@ -1713,11 +1723,13 @@ pub fn cxt_bi_end_v230222(c: &CZSC, params: &ParamView, _cache: &mut TaCache) ->
     opcode = "CxtThirdBuyV230228",
     param_kind = "CxtThirdBuyV230228"
 )]
-pub fn cxt_third_buy_v230228(c: &CZSC, params: &ParamView, _cache: &mut TaCache) -> Vec<Signal> {
+pub fn cxt_third_buy_v230228(c: &CZSC, params: &ParamView, cache: &mut TaCache) -> Vec<Signal> {
     let di = get_usize_param(params, "di", 1);
     let k1 = c.freq.to_string();
     let k2 = format!("D{}", di);
     let k3 = "三买辅助V230228";
+    let reference_key = format!("{k1}_{k2}_{k3}");
+    cache.signal_references.remove(&reference_key);
     if c.bi_list.len() < di + 11 {
         return make_kline_signal_v2(&k1, &k2, k3, "其他", "其他");
     }
@@ -1731,29 +1743,36 @@ pub fn cxt_third_buy_v230228(c: &CZSC, params: &ParamView, _cache: &mut TaCache)
             continue;
         }
         let mut key_bis: Vec<&BI> = Vec::new();
+        let mut key_positions = Vec::new();
         for i in (0..=(bis.len() - 3)).step_by(2) {
             if i == 0 {
                 key_bis.push(&bis[i]);
+                key_positions.push(i + 1);
             } else {
                 let b1 = &bis[i - 2];
                 let b3 = &bis[i];
                 if b3.get_high() > b1.get_high() {
                     key_bis.push(b3);
+                    key_positions.push(i + 1);
                 }
             }
         }
         if key_bis.len() < 2 {
             continue;
         }
-        let tb_break = bis.last().unwrap().get_low()
-            > key_bis.iter().map(|x| x.get_high()).fold(f64::INFINITY, f64::min)
-            && key_bis.iter().map(|x| x.get_high()).fold(f64::INFINITY, f64::min)
-                > key_bis.iter().map(|x| x.get_low()).fold(f64::NEG_INFINITY, f64::max);
+        let zg = key_bis.iter().map(|x| x.get_high()).fold(f64::INFINITY, f64::min);
+        let zd = key_bis.iter().map(|x| x.get_low()).fold(f64::NEG_INFINITY, f64::max);
+        let tb_break = bis.last().unwrap().get_low() > zg && zg > zd;
         let tb_price = bis.last().unwrap().get_low()
             < bis.iter().map(|x| x.get_low()).fold(f64::INFINITY, f64::min)
                 + 1.618 * mean(&key_bis.iter().map(|x| x.get_power_price()).collect::<Vec<_>>());
         if tb_break && tb_price {
-            return make_kline_signal_v2(&k1, &k2, k3, "三买", &format!("{}笔", bis.len()));
+            let signals = make_kline_signal_v2(&k1, &k2, k3, "三买", &format!("{}笔", bis.len()));
+            cache.signal_references.insert(reference_key, SignalReference::capture(
+                c, di, bis, &key_positions, ReferenceKind::KeyUpBiOverlap,
+                (zd, zg),
+            ));
+            return signals;
         }
     }
     make_kline_signal_v2(&k1, &k2, k3, "其他", "其他")

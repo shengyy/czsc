@@ -9,6 +9,19 @@
 
 ## [Unreleased]
 
+## [1.0.1+ashare.20261013] — 2026-10-13
+
+### Added
+
+- Rust / Python `CzscSignals.signal_references` exports current operands from the original `cxt_third_buy_V230228` and `cxt_third_bs_V230318` hit. Includes overlap type, participating BI snapshots, hit window, final BI and bounds. Original Signal key/value and calculation rules are unchanged.
+- References follow per-frequency reuse, tail updates, clone/serde and Python fresh pickle semantics. Old positional TaCache snapshots remain readable.
+
+### Fixed
+
+- Signal configuration changes invalidate both cached results and references, including in-place parameter changes and reactivated frequencies. Unchanged configurations retain their compiled operations. Restoring a Rust snapshot rebuilds function pointers without discarding hot results or rerunning indicators on an unchanged bar.
+
+- Python 3.14 requires pandas >= 2.3.3, the [first generally compatible release](https://pandas.pydata.org/pandas-docs/version/2.3.3/whatsnew/v2.3.3.html). The lockfile updates only pandas 2.3.2 → 2.3.3. CI now selects the matrix interpreter explicitly, includes Python 3.14, and checks datetime construction before building the native extension.
+
 ## [1.0.1] — 2026-08-09
 
 ### Added

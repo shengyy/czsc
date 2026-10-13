@@ -25,29 +25,26 @@ SIGNALS_DIR = ROOT / "crates" / "czsc-signals" / "src"
 
 # 文件 -> (分组, 主题)。每次新增 .rs 时在此处登记一行。
 FILE_METADATA: dict[str, tuple[str, str]] = {
-    "bar.rs":         ("K线基础", "原始 K 线特征：涨跌停、累积成交额、单 K 形态、时间段过滤"),
-    "tas.rs":         ("K线基础", "TA 指标系：MA / MACD / KDJ / BOLL / RSI / SAR / ATR 等"),
-    "vol.rs":         ("K线基础", "成交量分位、成交量异动窗口"),
-    "obv.rs":         ("K线基础", "OBV 能量潮上下穿信号"),
-    "cvolp.rs":       ("K线基础", "成交量价压力上下穿"),
-    "kcatr.rs":       ("K线基础", "K-Channel + ATR 突破"),
-    "ntmdk.rs":       ("K线基础", "NTMDK 综合动能"),
-    "clv.rs":         ("K线基础", "CLV 收盘价相对强弱"),
-    "jcc.rs":         ("K线基础", "经典 K 线形态：吃头、反击线、分手线、乌云盖顶、三星等"),
-    "byi.rs":         ("K线基础", "「白伊」系：对称中枢、笔的结束判定"),
-    "xl.rs":          ("K线基础", "线性化 K 线：位置 / 趋势 / 基差"),
-    "coo.rs":         ("K线基础", "共振组合：TD / CCI / KDJ / SAR 联合决策"),
-    "ang.rs":         ("K线基础", "角度 / 斜率类：均线斜率、回归角度"),
-    "pressure.rs":    ("K线基础", "支撑 / 阻力位密度"),
-
-    "cxt.rs":         ("缠论结构", "笔 / 分型 / 中枢 / 一二三类买卖点等核心缠论判定"),
-
-    "zdy.rs":         ("自定义指标", "用户自定义指标沙箱：MACD 变种、自定义中枢空间等"),
-
-    "pos.rs":         ("Trader", "持仓状态、固定止损 / 止盈、移动止损、持仓时间窗"),
-    "cat.rs":         ("Trader", "跨周期 MACD 共振"),
-    "cxt_trader.rs":  ("Trader", "跨周期缠论：中枢共振、日内策略"),
-    "zdy_trader.rs":  ("Trader", "自定义 trader 信号：止损止盈 / 震荡识别"),
+    "bar.rs": ("K线基础", "原始 K 线特征：涨跌停、累积成交额、单 K 形态、时间段过滤"),
+    "tas.rs": ("K线基础", "TA 指标系：MA / MACD / KDJ / BOLL / RSI / SAR / ATR 等"),
+    "vol.rs": ("K线基础", "成交量分位、成交量异动窗口"),
+    "obv.rs": ("K线基础", "OBV 能量潮上下穿信号"),
+    "cvolp.rs": ("K线基础", "成交量价压力上下穿"),
+    "kcatr.rs": ("K线基础", "K-Channel + ATR 突破"),
+    "ntmdk.rs": ("K线基础", "NTMDK 综合动能"),
+    "clv.rs": ("K线基础", "CLV 收盘价相对强弱"),
+    "jcc.rs": ("K线基础", "经典 K 线形态：吃头、反击线、分手线、乌云盖顶、三星等"),
+    "byi.rs": ("K线基础", "「白伊」系：对称中枢、笔的结束判定"),
+    "xl.rs": ("K线基础", "线性化 K 线：位置 / 趋势 / 基差"),
+    "coo.rs": ("K线基础", "共振组合：TD / CCI / KDJ / SAR 联合决策"),
+    "ang.rs": ("K线基础", "角度 / 斜率类：均线斜率、回归角度"),
+    "pressure.rs": ("K线基础", "支撑 / 阻力位密度"),
+    "cxt.rs": ("缠论结构", "笔 / 分型 / 中枢 / 一二三类买卖点等核心缠论判定"),
+    "zdy.rs": ("自定义指标", "用户自定义指标沙箱：MACD 变种、自定义中枢空间等"),
+    "pos.rs": ("Trader", "持仓状态、固定止损 / 止盈、移动止损、持仓时间窗"),
+    "cat.rs": ("Trader", "跨周期 MACD 共振"),
+    "cxt_trader.rs": ("Trader", "跨周期缠论：中枢共振、日内策略"),
+    "zdy_trader.rs": ("Trader", "自定义 trader 信号：止损止盈 / 震荡识别"),
 }
 
 GROUP_ORDER = ["K线基础", "缠论结构", "自定义指标", "Trader"]
@@ -81,9 +78,7 @@ def scan_signals_dir() -> list[FileStat]:
         text = rs.read_text(encoding="utf-8")
         meta = FILE_METADATA.get(rs.name)
         if meta is None:
-            sys.stderr.write(
-                f"[warn] {rs.name} 未登记 FILE_METADATA，临时归入「未分类」组\n"
-            )
+            sys.stderr.write(f"[warn] {rs.name} 未登记 FILE_METADATA，临时归入「未分类」组\n")
             group, topic = "未分类", "(待登记)"
         else:
             group, topic = meta
@@ -102,9 +97,7 @@ def scan_signals_dir() -> list[FileStat]:
 
     expected = set(FILE_METADATA) - seen_files
     if expected:
-        sys.stderr.write(
-            f"[warn] FILE_METADATA 中的文件未在 crate 中找到: {sorted(expected)}\n"
-        )
+        sys.stderr.write(f"[warn] FILE_METADATA 中的文件未在 crate 中找到: {sorted(expected)}\n")
 
     return stats
 
@@ -115,8 +108,7 @@ def render_markdown(stats: list[FileStat]) -> str:
     kline = sum(s.kline_count for s in stats)
     trader = sum(s.trader_count for s in stats)
     lines.append(
-        f"**汇总**：{len(stats)} 个 .rs 文件 / {total_signals} 个 `#[signal]`"
-        f"（K-line {kline} + Trader {trader}）"
+        f"**汇总**：{len(stats)} 个 .rs 文件 / {total_signals} 个 `#[signal]`（K-line {kline} + Trader {trader}）"
     )
     lines.append("")
 
@@ -152,23 +144,19 @@ def render_xml(stats: list[FileStat]) -> str:
         if not group_stats:
             continue
         group_total = sum(s.total for s in group_stats)
+        parts.append(f"<h2>{escape(group)}（{len(group_stats)} 文件 / {group_total} 信号）</h2>")
         parts.append(
-            f"<h2>{escape(group)}（{len(group_stats)} 文件 / {group_total} 信号）</h2>"
-        )
-        parts.append(
-            '<table>'
+            "<table>"
             '<colgroup><col width="100"/><col width="80"/><col width="320"/></colgroup>'
-            '<thead><tr>'
+            "<thead><tr>"
             '<th background-color="light-gray">文件</th>'
             '<th background-color="light-gray">信号数</th>'
             '<th background-color="light-gray">主题</th>'
-            '</tr></thead><tbody>'
+            "</tr></thead><tbody>"
         )
         for s in sorted(group_stats, key=lambda x: -x.total):
             parts.append(
-                f"<tr><td><code>{escape(s.filename)}</code></td>"
-                f"<td>{s.total}</td>"
-                f"<td>{escape(s.topic)}</td></tr>"
+                f"<tr><td><code>{escape(s.filename)}</code></td><td>{s.total}</td><td>{escape(s.topic)}</td></tr>"
             )
         parts.append("</tbody></table>")
     return "\n".join(parts)
@@ -181,7 +169,9 @@ def escape(text: str) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--format", choices=["markdown", "xml"], default="markdown",
+        "--format",
+        choices=["markdown", "xml"],
+        default="markdown",
         help="输出格式（默认 markdown）",
     )
     parser.add_argument("--output", type=Path, help="写入文件而非 stdout")

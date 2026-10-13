@@ -155,6 +155,19 @@ impl PyCzscSignals {
         Ok(dict.into_any().unbind())
     }
 
+    /// Current hit references keyed by Signal key; nested facts match Rust serde.
+    /// BI times are endpoints, not confirmation times. See docs/public_api.md.
+    #[getter]
+    fn signal_references(&self, py: Python) -> PyResult<Py<PyDict>> {
+        let json = serde_json::to_string(&self.inner.signal_references())
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(py
+            .import("json")?
+            .call_method1("loads", (json,))?
+            .cast_into::<PyDict>()?
+            .unbind())
+    }
+
     /// 返回各周期 CZSC 分析引擎
     #[getter]
     fn kas(&self) -> PyResult<HashMap<String, CZSC>> {

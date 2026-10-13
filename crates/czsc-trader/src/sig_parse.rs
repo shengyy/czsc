@@ -13,7 +13,7 @@ use tracing::error;
 /// - 展平：`{"name": "...", "freq": "...", "di": 1, "ma_type": "SMA"}`
 ///
 /// 同时对 `name` 做模块前缀剥离：`"czsc.signals.tas.cci_V230402"` → `"cci_V230402"`。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SignalConfig {
     /// 函数名，如 "tas_ma_base_V221101"
     pub name: String,

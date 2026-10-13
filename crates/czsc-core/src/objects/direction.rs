@@ -1,3 +1,7 @@
+// PyO3 from_py_object generates Clone::clone for these Copy enums; keep the
+// extraction API while allowing that generated call on recent Clippy versions.
+#![cfg_attr(feature = "python", allow(clippy::clone_on_copy))]
+
 #[cfg(feature = "python")]
 use pyo3::pyclass;
 #[cfg(feature = "python")]

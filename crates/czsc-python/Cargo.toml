@@ -58,8 +58,9 @@ polars         = { workspace = true }
 # czsc-python 是唯一启用 pyo3/extension-module 的 crate。
 # abi3-py310 通过上面的 [features] 段挂在 extension-module 后面，仅 wheel
 # 构建路径启用；stub_gen --no-default-features 时走具体版本 libpython 链接。
-# 业务 crate 都引用 workspace 裸 pyo3，`cargo test --workspace` 通过
-# PYO3_PYTHON 解析真实 libpython。
+# 业务 crate 默认走纯 Rust；native tests 按 crate 选择，避免 czsc-python
+# 的 extension-module 被统一到测试二进制。stub-gen 则通过 PYO3_PYTHON
+# 链接具体版本 libpython。
 pyo3           = { workspace = true, features = ["chrono"] }
 pyo3-stub-gen  = "0.22"
 rust_xlsxwriter = "0.95"

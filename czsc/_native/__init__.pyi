@@ -361,6 +361,12 @@ class CzscSignals:
         返回信号字典 s
         """
     @property
+    def signal_references(self) -> dict:
+        r"""
+        Current hit references keyed by Signal key; nested facts match Rust serde.
+        BI times are endpoints, not confirmation times. See docs/public_api.md.
+        """
+    @property
     def kas(self) -> builtins.dict[builtins.str, CZSC]:
         r"""
         返回各周期 CZSC 分析引擎

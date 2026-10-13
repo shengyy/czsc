@@ -4,6 +4,7 @@ use crate::sig_parse::SignalConfig;
 use czsc_core::analyze::{CZSC, resolve_max_bi_num, resolve_min_bi_len};
 use czsc_core::objects::bar::RawBar;
 use czsc_core::objects::signal::Signal;
+use czsc_signals::reference::SignalReference;
 use czsc_signals::registry;
 use czsc_signals::types::TaCache;
 use czsc_utils::bar_generator::BarGenerator;
@@ -86,9 +87,7 @@ pub struct CzscSignals {
     #[serde(skip)]
     use_plan_compiled: bool,
     #[serde(skip)]
-    compiled_cfg_ptr: usize,
-    #[serde(skip)]
-    compiled_cfg_len: usize,
+    compiled_ops_ready: bool,
     /// Trader MACD dependencies, rebuilt with the compiled signal configuration.
     #[serde(skip)]
     trader_macd_freqs: HashSet<String>,
@@ -99,6 +98,22 @@ pub struct CzscSignals {
     /// 按 freq 门控信号执行：末根 bar 未变化时复用上次结果
     last_freq_fingerprints: HashMap<String, BarFingerprint>,
     cached_freq_signals: HashMap<String, Vec<Signal>>,
+
+    /// Configuration that owns the hot results, independent of transient function
+    /// pointers. Appended for positional snapshot compatibility. Legacy snapshots
+    /// adopt the first supplied configuration, preserving their prior restore contract.
+    #[serde(default, serialize_with = "serialize_compiled_config")]
+    compiled_config: Option<Vec<SignalConfig>>,
+}
+
+fn serialize_compiled_config<S: serde::Serializer>(
+    config: &Option<Vec<SignalConfig>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    // SignalConfig accepts named objects (including flat Python configs).
+    // Keep that shape even inside a positional MessagePack engine snapshot.
+    let value = serde_json::to_value(config).map_err(serde::ser::Error::custom)?;
+    serde::Serialize::serialize(&value, serializer)
 }
 
 impl CzscSignals {
@@ -126,13 +141,52 @@ impl CzscSignals {
             signal_map: HashMap::new(),
             compiled_kline_groups: Vec::new(),
             use_plan_compiled: false,
-            compiled_cfg_ptr: 0,
-            compiled_cfg_len: 0,
+            compiled_ops_ready: false,
             trader_macd_freqs: HashSet::new(),
             required_kas_freqs: HashSet::new(),
             maintain_all_kas: false,
             last_freq_fingerprints: HashMap::new(),
             cached_freq_signals: HashMap::new(),
+            compiled_config: None,
+        }
+    }
+
+    /// References for the current signal results only, keyed by the unchanged Signal key.
+    /// No signal computation occurs here. See `SignalReference` and docs/public_api.md.
+    pub fn signal_references(&self) -> BTreeMap<String, &SignalReference> {
+        self.ta_cache
+            .values()
+            .flat_map(|cache| &cache.signal_references)
+            .filter(|(key, _)| self.signal_map.contains_key(*key))
+            .map(|(key, reference)| (key.clone(), reference))
+            .collect()
+    }
+
+    fn invalidate_signal_configuration(&mut self) -> Vec<String> {
+        self.cached_freq_signals.clear();
+        for cache in self.ta_cache.values_mut() {
+            cache.signal_references.clear();
+        }
+        // Only previously inactive structures can have gaps. Keep unrelated kas
+        // visible; rebuild a stale structure only if the new plan needs it.
+        self.kas
+            .keys()
+            .filter(|freq| {
+                !self.s.is_empty()
+                    && !self.maintain_all_kas
+                    && !self.required_kas_freqs.contains(*freq)
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn invalidate_reactivated_frequencies(&mut self, stale: Vec<String>) {
+        for freq in stale {
+            if self.maintain_all_kas || self.required_kas_freqs.contains(&freq) {
+                self.kas.remove(&freq);
+                self.ta_cache.remove(&freq);
+                self.last_freq_fingerprints.remove(&freq);
+            }
         }
     }
 
@@ -140,12 +194,18 @@ impl CzscSignals {
         if self.use_plan_compiled {
             return;
         }
-        let ptr = signals_config.as_ptr() as usize;
-        let len = signals_config.len();
-        if self.compiled_cfg_ptr == ptr && self.compiled_cfg_len == len {
+        let same_config = self.compiled_config.as_deref() == Some(signals_config);
+        if self.compiled_ops_ready && same_config {
             return;
         }
 
+        // Deserialization drops function pointers, not the results they produced.
+        // Rebuilding those pointers must not run non-idempotent indicators again.
+        let stale = if self.compiled_config.is_some() && !same_config {
+            self.invalidate_signal_configuration()
+        } else {
+            Vec::new()
+        };
         let mut grouped: HashMap<String, Vec<CompiledKlineSignalOp>> = HashMap::new();
         self.required_kas_freqs.clear();
         self.trader_macd_freqs.clear();
@@ -195,8 +255,9 @@ impl CzscSignals {
                     .push(CompiledKlineFreqGroup { freq, ops });
             }
         }
-        self.compiled_cfg_ptr = ptr;
-        self.compiled_cfg_len = len;
+        self.invalidate_reactivated_frequencies(stale);
+        self.compiled_config = Some(signals_config.to_vec());
+        self.compiled_ops_ready = true;
     }
 
     /// 使用 ExecutionPlan 的 signal_plan 一次性装载 K线信号执行计划。
@@ -204,6 +265,7 @@ impl CzscSignals {
     /// 该接口会切换到 plan 驱动模式，后续 `update_signals` 不再尝试按
     /// `signals_config` 进行运行期编译。
     pub fn load_compiled_signal_plan(&mut self, plan: &CompiledSignalPlanV2) -> Result<(), String> {
+        let stale = self.invalidate_signal_configuration();
         let mut grouped: HashMap<String, Vec<CompiledKlineSignalOp>> = HashMap::new();
         self.required_kas_freqs.clear();
         self.trader_macd_freqs.clear();
@@ -265,9 +327,9 @@ impl CzscSignals {
             }
         }
 
+        self.invalidate_reactivated_frequencies(stale);
         self.use_plan_compiled = true;
-        self.compiled_cfg_ptr = 0;
-        self.compiled_cfg_len = 0;
+        self.compiled_config = None;
         Ok(())
     }
 
@@ -334,6 +396,7 @@ impl CzscSignals {
 
             if let Some(czsc) = self.kas.get(group.freq.as_str()) {
                 let cache = self.ta_cache.entry(group.freq.clone()).or_default();
+                cache.signal_references.clear();
                 cache.updated_macd_keys = Some(HashSet::new());
                 let mut freq_sigs = Vec::new();
                 for op in &group.ops {
@@ -392,6 +455,9 @@ impl CzscSignals {
         self.kas.clear();
         self.last_freq_fingerprints.clear();
         self.cached_freq_signals.clear();
+        for cache in self.ta_cache.values_mut() {
+            cache.signal_references.clear();
+        }
 
         for (freq, bars_lock) in &self.bg.freq_bars {
             let bars = bars_lock.read();
@@ -450,5 +516,96 @@ impl CzscSignals {
             }
         }
         Ok(changed_freqs)
+    }
+}
+
+#[cfg(test)]
+mod reference_cache_tests {
+    use super::*;
+    use czsc_core::objects::{freq::Freq, market::Market};
+
+    #[test]
+    fn equal_configuration_keeps_compiled_ops_and_frequency_cache() {
+        let bg = BarGenerator::new(Freq::F30, vec![], 1000, Market::AShare).unwrap();
+        let mut c = CzscSignals::new("TEST".into(), bg);
+        let config = vec![SignalConfig {
+            name: "cxt_third_buy_V230228".into(),
+            freq: Some("30分钟".into()),
+            params: HashMap::new(),
+        }];
+        c.ensure_compiled_kline_ops(&config);
+        let ops = c.compiled_kline_groups[0].ops.as_ptr();
+        c.cached_freq_signals.insert("30分钟".into(), vec![]);
+        for _ in 0..100 {
+            // A distinct allocation with equal content must still use the plan.
+            c.ensure_compiled_kline_ops(&config.clone());
+            assert_eq!(c.compiled_kline_groups[0].ops.as_ptr(), ops);
+            assert!(c.cached_freq_signals.contains_key("30分钟"));
+        }
+    }
+
+    #[test]
+    fn legacy_snapshots_rebuild_only_function_pointers() {
+        let bg = BarGenerator::new(Freq::F30, vec![], 1000, Market::AShare).unwrap();
+        let mut c = CzscSignals::new("TEST".into(), bg);
+        let config = vec![SignalConfig {
+            name: "cxt_third_buy_V230228".into(),
+            freq: Some("30分钟".into()),
+            params: HashMap::new(),
+        }];
+        c.ensure_compiled_kline_ops(&config);
+        c.cached_freq_signals.insert("30分钟".into(), vec![]);
+        c.ta_cache.entry("30分钟".into()).or_default().last_len = 100;
+        // Exact original positional field order; compiled pointers were skipped.
+        let old_sequence = (
+            &c.bg,
+            &c.symbol,
+            &c.kas,
+            &c.ta_cache,
+            &c.s,
+            &c.sigs,
+            &c.signal_map,
+            &c.required_kas_freqs,
+            c.maintain_all_kas,
+            &c.last_freq_fingerprints,
+            &c.cached_freq_signals,
+        );
+        let msgpack: CzscSignals =
+            rmp_serde::from_slice(&rmp_serde::to_vec(&old_sequence).unwrap()).unwrap();
+        let mut old_json = serde_json::to_value(&c).unwrap();
+        old_json.as_object_mut().unwrap().remove("compiled_config");
+        let json: CzscSignals = serde_json::from_value(old_json).unwrap();
+        for mut restored in [json, msgpack] {
+            assert!(restored.compiled_config.is_none());
+            assert!(!restored.compiled_ops_ready);
+            restored.ensure_compiled_kline_ops(&config);
+            assert_eq!(restored.compiled_kline_groups.len(), 1);
+            assert!(restored.cached_freq_signals.contains_key("30分钟"));
+            assert_eq!(restored.ta_cache["30分钟"].last_len, 100);
+            assert_eq!(restored.compiled_config.as_deref(), Some(config.as_slice()));
+            // Once adopted, even an empty configuration is a real change.
+            restored.ensure_compiled_kline_ops(&[]);
+            assert!(restored.cached_freq_signals.is_empty());
+        }
+    }
+
+    #[test]
+    fn current_json_snapshot_retains_configuration_and_hot_results() {
+        let bg = BarGenerator::new(Freq::F30, vec![], 1000, Market::AShare).unwrap();
+        let mut c = CzscSignals::new("TEST".into(), bg);
+        let config = vec![SignalConfig {
+            name: "cxt_third_buy_V230228".into(),
+            freq: Some("30分钟".into()),
+            params: HashMap::new(),
+        }];
+        c.ensure_compiled_kline_ops(&config);
+        c.cached_freq_signals.insert("30分钟".into(), vec![]);
+        let mut restored: CzscSignals =
+            serde_json::from_slice(&serde_json::to_vec(&c).unwrap()).unwrap();
+        assert_eq!(restored.compiled_config, c.compiled_config);
+        restored.ensure_compiled_kline_ops(&config);
+        assert!(restored.cached_freq_signals.contains_key("30分钟"));
+        restored.ensure_compiled_kline_ops(&[]);
+        assert!(restored.cached_freq_signals.is_empty());
     }
 }
