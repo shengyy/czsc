@@ -40,10 +40,10 @@ Rust 工具链入口和安装边界见 [README · 开发环境搭建](README.md#
 ### UV 包管理 (项目使用UV管理依赖)
 ```bash
 # 同步依赖并安装开发工具（仅在 pyproject.toml / uv.lock 变更时跑）
-uv sync --extra dev
+uv sync --locked --extra dev
 
 # 安装所有依赖组合
-uv sync --extra all
+uv sync --locked --extra all
 
 # 运行测试（日常默认 --no-sync，省去每次 4-5s 的 lockfile/venv 一致性检查）
 uv run --no-sync pytest
@@ -183,8 +183,12 @@ czsc_obj = CZSC(bars)
 
 ### 依赖管理（UV配置）
 - 核心运行时依赖定义在 `pyproject.toml` 的 `[project.dependencies]` 中
-- 开发依赖在 `[project.optional-dependencies.dev]` 中
+- `[build-system]` 声明 PEP 517 构建接口要求；uv 先安装默认 build 组，再用其中锁定的 maturin 构建 czsc（仅对 czsc 关闭独立构建依赖解析）；发布 workflow 同样从 `uv.lock` 读取它
+- 构建工具在 `[dependency-groups].build`，开发工具在 `.dev`，CI 审计工具在 `.audit`，均由 `uv.lock` 精确锁定；默认启用 build + dev，运行时依赖导出使用 `--no-default-groups`
+- 可选交互工具在 `[project.optional-dependencies.dev]` 中
 - 测试依赖在 `[project.optional-dependencies.test]` 中
+- `.python-version` 是开发、CI、类型检查和构建解释器的选择源；只维护 Python 3.14 路径
+- `requires-python` 限定公共安装范围，运行时 pandas 最低要求与开发精确锁定分别由 `pyproject.toml` / `uv.lock` 承担；工作流不得 `uv add` 临时改声明
 - 使用 UV 进行依赖管理和虚拟环境控制
 - 项目使用 UV 管理 Python 依赖与虚拟环境（详见根目录 README "开发环境" 章节）
 
@@ -222,7 +226,7 @@ czsc_obj = CZSC(bars)
 - **API 暴露**：所有面向用户的 API 都通过 `czsc.xxx` 顶层命名空间暴露，禁止用户感知 `czsc._native`
 - **Python/Rust 分工**：见本文件顶部「🏛️ 开发宪法 · 第一条」。该条款是硬约束，与此冲突的任何"局部例外"都不成立。
 - **类型 stub**：`czsc/py.typed` 启用 inline 类型注解；扩展模块 stub 已生成于 `czsc/_native/__init__.pyi`，由 `pyo3-stub-gen` 自动维护
-- **构建环境约束**：`pyo3-stub-gen` 与 `pyo3` 0.22 都要求 Python ≥ 3.10；通过 `crates/czsc-python/build.rs` 在编译期校验 `PYO3_PYTHON`，低于 3.10 时直接报错
+- **构建环境约束**：PyO3 0.28 / pyo3-stub-gen 0.22；`crates/czsc-python/build.rs` 校验显式 `PYO3_PYTHON` 与 `.python-version` 一致，maturin 传入所选解释器，直接 cargo 调用必须显式设置。`abi3-py310` 仅是 ABI 下界，不代表旧 Python 支持承诺。
 - **版本号锁死**（PR-5）：crates.io 与 PyPI 必须使用同一版本号。**唯一版本源**是 `Cargo.toml [workspace.package].version`；`pyproject.toml` 用 `dynamic = ["version"]`，由 maturin 在打 wheel 时从 Cargo workspace 注入。`crates/czsc-python/build.rs` 会在编译期校验 pyproject.toml 仍然走 dynamic 路径，禁止硬编码 `version = "..."`
 - **发版流程**：bump `Cargo.toml [workspace.package].version` 后，同步 publish 到 crates.io（`cargo publish`）与 PyPI（`maturin publish`）；CHANGELOG 必须列出本次 release 的 breaking changes
 - **rs-czsc 关系**：czsc 一次性 fork rs-czsc 的 Rust 实现进本仓库，**不再做季度同步**；`tests/parity/` 目录已删除，不再保留 rs-czsc parity 比对测试

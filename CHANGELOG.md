@@ -11,11 +11,16 @@
 
 ### Fixed
 
-- `resample_to_daily` promotes both datetime join keys to a common precision, supporting ns/us/ms/s inputs on pandas 2 and 3 without rounding dates or changing the snapshot rows carried forward. The output remains datetime without a fixed unit guarantee.
+- `resample_to_daily` promotes both datetime join keys to a common precision, supporting ns/us/ms/s inputs on pandas 3 without rounding dates or changing the snapshot rows carried forward. The output remains datetime without a fixed unit guarantee.
+
+### Breaking Changes
+
+- This public fork supports Python 3.14 only and requires pandas >= 3.0.5. Older Python releases and the unreachable talib-rs test extra are no longer supported. The native abi3 floor is unchanged; wheel metadata enforces the supported runtime.
 
 ### Development
 
-- Pin development/CI pandas to 3.0.5 on Python >= 3.11 and retain 2.3.3 on Python 3.10. Runtime pandas minimums and Python >= 3.10 support are unchanged; other locked package versions are retained.
+- `.python-version` selects the interpreter for development, CI, type checking, stub generation and packaging. `uv.lock` selects exact dependencies (currently pandas 3.0.5); workflows and environment checks consume these files instead of maintaining version matrices or falling back to another interpreter.
+- Existing audit tools now resolve in a locked dependency group. Wheel smoke installs locked dependencies and imports the built wheel outside the checkout.
 
 ## [1.0.1+ashare.20261013] — 2026-10-13
 
