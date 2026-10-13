@@ -18,7 +18,7 @@ jobs:
   #    Only czsc-python enables pyo3/extension-module; exclude that wheel
   #    producer from native test binaries. The business crates (including
   #    signals/trader and the czsc facade) have pure Rust default features
-  #    and must run their own tests, in addition to the Python matrix below.
+  #    and must run their own tests, in addition to the Python checks below.
   # ------------------------------------------------------------------
   rust-tests:
     name: Rust per-crate tests
@@ -92,14 +92,11 @@ jobs:
     - name: Cache cargo
       uses: Swatinem/rust-cache@v2
 
-    - name: Set up Python (any 3.10+ works for binding)
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+    - name: Set up project Python
+      uses: ./.github/actions/python-environment
 
     - name: Run stub_gen
       run: |
-        export PYO3_PYTHON=$(which python3)
         cargo run --bin stub_gen -p czsc-python \
           --no-default-features --features stub-gen
 
@@ -116,27 +113,12 @@ jobs:
         fi
 
   # ------------------------------------------------------------------
-  # 2) Python test matrix — abi3 covers 3.10/3.11/3.12/3.13/3.14.
-  #     UV_PYTHON binds dependency sync and maturin to the selected version.
-  #     Check pandas dates before building czsc._native, then run pytest.
+  # 2) Python tests on the runtime selected by .python-version and uv.lock.
   # ------------------------------------------------------------------
   test:
-    name: Python tests (py${{ matrix.python-version }}, pandas${{ matrix.pandas-version }})
-    env:
-      UV_PYTHON: ${{ matrix.python-version }}
+    name: Python tests
     needs: rust-tests
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # Mirrors the dev group's pins, without raising the public Python floor.
-        include:
-          - {python-version: '3.10', pandas-version: '2.3.3'}
-          - {python-version: '3.11', pandas-version: '3.0.5'}
-          - {python-version: '3.12', pandas-version: '3.0.5'}
-          - {python-version: '3.13', pandas-version: '3.0.5'}
-          - {python-version: '3.14', pandas-version: '3.0.5'}
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -147,13 +129,8 @@ jobs:
     - name: Cache cargo
       uses: Swatinem/rust-cache@v2
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v2
-      with:
-        version: "latest"
-
-    - name: Set up Python ${{ matrix.python-version }}
-      run: uv python install ${{ matrix.python-version }}
+    - name: Set up project Python
+      uses: ./.github/actions/python-environment
 
     - name: Install system dependencies
       run: |
@@ -166,7 +143,7 @@ jobs:
         uv sync --locked --no-install-project --extra all
 
     - name: Verify selected interpreter and pandas datetime support
-      run: uv run --no-sync python scripts/check_python_environment.py --expected-python ${{ matrix.python-version }} --expected-pandas ${{ matrix.pandas-version }}
+      run: uv run --no-sync python scripts/check_python_environment.py
 
     - name: Build czsc._native (maturin develop)
       run: |
@@ -179,10 +156,9 @@ jobs:
 
     - name: Run pytest
       run: |
-        uv run --no-sync pytest tests/ -v --cov=czsc --cov-report=xml --cov-report=term
+        uv run --no-sync pytest tests/ --run-slow -v --cov=czsc --cov-report=xml --cov-report=term
 
     - name: Upload coverage to Codecov
-      if: matrix.python-version == '3.11'
       uses: codecov/codecov-action@v4
       with:
         file: ./coverage.xml
@@ -198,17 +174,14 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v2
-      with:
-        version: "latest"
+    - name: Set up project Python
+      uses: ./.github/actions/python-environment
 
     - name: Check Python formatting with ruff
-      # ruff 是纯文本工具，不需要解析项目类型，直接 `uvx` 跑一份临时环境
-      # 即可——之前用 `uv sync --extra all` 装 plotly/tushare/ccxt 等几 GB
-      # runtime 重依赖，纯浪费（80%+ 的 wall time 在装无关包）。
+      # Install only the locked dev tools; no native build is needed to format.
       run: |
-        uvx --from "ruff>=0.9.0" ruff format --check --diff czsc/ tests/
+        uv sync --locked --only-dev
+        uv run --no-sync ruff format --check --diff czsc/ tests/ scripts/
 
     - name: Check Rust formatting with cargo fmt
       run: |
@@ -231,29 +204,22 @@ jobs:
     - name: Cache cargo
       uses: Swatinem/rust-cache@v2
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v2
-      with:
-        version: "latest"
-
-    - name: Set up Python
-      run: uv python install 3.11
+    - name: Set up project Python
+      uses: ./.github/actions/python-environment
 
     - name: Install dependencies
-      # 用 `uv sync` 而不是 `uv sync --extra all`：
-      #   - `[project.dependencies]` 装运行时依赖（basedpyright 需要解析这些 import）
-      #   - `[dependency-groups].dev` 默认装（含 ruff / basedpyright）
-      # 避开 `extra=all` 里的 test 临时包（talib-rs marker 各平台 wheel 不全，
-      # 经常触发额外 resolve）+ release 包（twine/build），lint 都用不到。
-      run: uv sync
+      run: uv sync --locked
+
+    - name: Verify project environment
+      run: uv run --no-sync python scripts/check_python_environment.py
 
     - name: Lint Python with ruff
       run: |
-        uv run ruff check czsc/ tests/
+        uv run --no-sync ruff check czsc/ tests/ scripts/
 
     - name: Type-check Python with basedpyright
       run: |
-        uv run basedpyright czsc/ || true
+        uv run --no-sync basedpyright czsc/ || true
 
     - name: Lint Rust with cargo clippy
       run: |
@@ -270,26 +236,21 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v2
-      with:
-        version: "latest"
-
-    - name: Set up Python
-      run: uv python install 3.11
+    - name: Set up project Python
+      uses: ./.github/actions/python-environment
 
     - name: Install dependencies
-      run: uv sync
+      run: |
+        uv sync --locked --group audit
+        uv run --no-sync python scripts/check_python_environment.py
 
     - name: Security audit with safety
       run: |
-        uv add --dev safety
-        uv run safety check --json || true
+        uv run --no-sync safety check --json || true
 
     - name: Check for security issues with bandit
       run: |
-        uv add --dev bandit[toml]
-        uv run bandit -r czsc/ -f json -o bandit-report.json || true
+        uv run --no-sync bandit -r czsc/ -f json -o bandit-report.json || true
 
     - name: Upload security reports
       uses: actions/upload-artifact@v4
@@ -310,16 +271,13 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v2
-      with:
-        version: "latest"
-
-    - name: Set up Python
-      run: uv python install 3.11
+    - name: Set up project Python
+      uses: ./.github/actions/python-environment
 
     - name: Install dependencies
-      run: uv sync
+      run: |
+        uv sync --locked --group audit
+        uv run --no-sync python scripts/check_python_environment.py
 
     - name: Check for outdated dependencies
       run: |
@@ -327,8 +285,7 @@ jobs:
 
     - name: Audit dependency licenses
       run: |
-        uv add --dev pip-licenses
-        uv run pip-licenses --format=json --output-file=licenses.json || true
+        uv run --no-sync pip-licenses --format=json --output-file=licenses.json || true
 
     - name: Upload dependency reports
       uses: actions/upload-artifact@v4

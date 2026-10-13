@@ -1,0 +1,40 @@
+name: Project Python environment
+description: Select the declared interpreter and expose locked build tooling.
+outputs:
+  python-path:
+    description: Selected host interpreter executable
+    value: ${{ steps.python.outputs.python-path }}
+  python-version:
+    description: Interpreter selected by .python-version
+    value: ${{ steps.runtime.outputs.python-version }}
+  maturin-version:
+    description: Build frontend selected by uv.lock
+    value: ${{ steps.runtime.outputs.maturin-version }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      id: python
+      with:
+        python-version-file: .python-version
+    - uses: astral-sh/setup-uv@v6
+    - name: Bind tools to the selected interpreter
+      id: runtime
+      shell: bash
+      run: |
+        python scripts/check_python_environment.py --interpreter-only
+        python - <<'PY'
+        import os
+        import sys
+        import tomllib
+        from pathlib import Path
+        lock = tomllib.loads(Path("uv.lock").read_text())
+        (maturin,) = [p["version"] for p in lock["package"] if p["name"] == "maturin"]
+        with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+            print(f"python-version={Path('.python-version').read_text().strip()}", file=out)
+            print(f"maturin-version={maturin}", file=out)
+        with open(os.environ["GITHUB_ENV"], "a") as out:
+            print(f"UV_PYTHON={sys.executable}", file=out)
+            print(f"PYO3_PYTHON={sys.executable}", file=out)
+            print("UV_PYTHON_DOWNLOADS=never", file=out)
+        PY
