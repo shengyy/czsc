@@ -52,7 +52,9 @@ def _build_czsc() -> tuple[Any | None, str | None]:
 
         df = generate_symbol_kines("000001", "30分钟", "20240101", "20240301", seed=42)
         bars = czsc.format_standard_kline(df, freq=czsc.Freq.F30)
-        return czsc.CZSC(bars), None
+        # The snapshot was recorded with min_bi_len=6 and max_bi_num=50.
+        # tests/__init__.py sets a different process-wide minimum for other tests.
+        return czsc.CZSC(bars, min_bi_len=6, max_bi_num=50), None
     except Exception as exc:  # noqa: BLE001
         return None, f"build failed: {type(exc).__name__}: {exc}"
 
