@@ -27,7 +27,7 @@ def _num(value: Any) -> float | None:
         return None
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -77,7 +77,7 @@ def _parse_stats(row: dict[str, Any]) -> dict[str, Any]:
         return raw
     try:
         return json.loads(raw)
-    except (TypeError, ValueError, json.JSONDecodeError):
+    except TypeError, ValueError, json.JSONDecodeError:
         return {}
 
 
