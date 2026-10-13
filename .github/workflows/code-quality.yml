@@ -15,12 +15,10 @@ jobs:
   # ------------------------------------------------------------------
   # 1) Rust per-crate tests — must pass before any Python work runs.
   #
-  #    `cargo test --workspace` cannot link against libpython when the
-  #    pyo3 `extension-module` feature is enabled (see MIGRATION_NOTES
-  #    §3.1). We therefore run cargo test per crate, skipping crates
-  #    that pull in pyo3/extension-module (czsc-python, czsc-signals,
-  #    czsc-trader) — they're exercised end-to-end by the Python test
-  #    matrix below via maturin develop + pytest.
+  #    Only czsc-python enables pyo3/extension-module; exclude that wheel
+  #    producer from native test binaries. The business crates (including
+  #    signals/trader and the czsc facade) have pure Rust default features
+  #    and must run their own tests, in addition to the Python matrix below.
   # ------------------------------------------------------------------
   rust-tests:
     name: Rust per-crate tests
@@ -59,7 +57,7 @@ jobs:
         set -e
         # 注：原 error-support 已合并到 czsc-core::error_chain；
         #     原 error-macros 重命名为 czsc-derive。
-        for crate in czsc-derive czsc-core czsc-utils czsc-ta czsc-signal-macros; do
+        for crate in czsc-derive czsc-core czsc-utils czsc-ta czsc-signal-macros czsc-signals czsc-trader czsc; do
           echo "::group::cargo test -p $crate"
           cargo test -p "$crate" --no-fail-fast
           echo "::endgroup::"
@@ -118,9 +116,9 @@ jobs:
         fi
 
   # ------------------------------------------------------------------
-  # 2) Python test matrix — single abi3 wheel covers 3.10/3.11/3.12/3.13.
-  #     Each Python version installs the project (which triggers maturin
-  #     to build czsc._native against that interpreter), then runs pytest.
+  # 2) Python test matrix — abi3 covers 3.10/3.11/3.12/3.13/3.14.
+  #     UV_PYTHON binds dependency sync and maturin to the selected version.
+  #     Check pandas dates before building czsc._native, then run pytest.
   # ------------------------------------------------------------------
   test:
     name: Python tests (py${{ matrix.python-version }})
