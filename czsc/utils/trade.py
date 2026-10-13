@@ -119,7 +119,7 @@ def resample_to_daily(df: pd.DataFrame, sdt=None, edt=None, only_trade_date=True
     1. 首先，函数接收一个数据框`df`，以及可选的开始日期`sdt`，结束日期`edt`，和一个布尔值`only_trade_date`。
     2. 函数将`df`中的`dt`列转换为日期时间格式。如果没有提供`sdt`或`edt`，则使用`df`中的最小和最大日期作为开始和结束日期。
     3. 创建一个日期序列。如果`only_trade_date`为真，则只包含交易日期；否则，包含`sdt`和`edt`之间的所有日期。
-    4. 使用`merge_asof`函数，找到每个日期在原始`df`中对应的最近一个日期。
+    4. 使用`merge_asof`函数，找到不晚于每个目标日期的最近一个原始日期。
     5. 创建一个映射，将每个日期映射到原始`df`中的对应行。
     6. 对于日期序列中的每个日期，复制映射中对应的数据行，并将日期设置为当前日期。
     7. 最后，将所有复制的数据行合并成一个新的数据框，并返回。
@@ -127,8 +127,9 @@ def resample_to_daily(df: pd.DataFrame, sdt=None, edt=None, only_trade_date=True
     :param df: 日线以上周期的数据，必须包含 dt 列
     :param sdt: 开始日期
     :param edt: 结束日期
-    :param only_trade_date: 是否只保留交易日数据
-    :return: pd.DataFrame
+    :param only_trade_date: True 使用周一至周五的工作日历（不校验交易所节假日），False 使用所有自然日
+    :return: pd.DataFrame，dt 为 datetime；支持 ns/us/ms/s 输入，不承诺固定输出精度。
+        合并日期键使用双方兼容的精度，不截断时间；同一原始日期的所有行一起延续到目标日期。
     """
     df["dt"] = pd.to_datetime(df["dt"])
     sdt = df["dt"].min() if not sdt else pd.to_datetime(sdt)
@@ -141,6 +142,11 @@ def resample_to_daily(df: pd.DataFrame, sdt=None, edt=None, only_trade_date=True
 
     # 通过 merge_asof 找到每个日期对应原始 df 中最近一个日期
     vdt = pd.DataFrame({"dt": df["dt"].unique()})
+    # pandas may infer different resolutions for the calendar and observations.
+    # Let pandas promote both keys losslessly, including timezone-aware dtypes.
+    key_dtype = pd.concat([trade_dates["date"], vdt["dt"]], ignore_index=True).dtype
+    trade_dates["date"] = trade_dates["date"].astype(key_dtype)
+    vdt["dt"] = vdt["dt"].astype(key_dtype)
     trade_dates = pd.merge_asof(trade_dates, vdt, left_on="date", right_on="dt")
     trade_dates = trade_dates.dropna(subset=["dt"]).reset_index(drop=True)
 

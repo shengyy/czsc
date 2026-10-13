@@ -276,7 +276,10 @@ Rust 实现，位于 `crates/czsc-ta/`，通过 `czsc._native.ta.*` 暴露，顶
 | `update_bbars` | 计算并添加前 N 根 bar 的累计收益列 | `czsc/utils/trade.py:67` | 无（纯 pandas） |
 | `update_tbars` | 计算带 Event 方向信息的未来收益 | `czsc/utils/trade.py:89` | 无（纯 pandas） |
 | `resample_to_daily` | 将非日线数据转换为日线数据 | `czsc/utils/trade.py:110` | `_get_trade_dates`（内部函数） |
-| `adjust_holding_weights` | 按固定持仓周期调整权重 | `czsc/utils/trade.py:161` | 无（纯 pandas） |
+| `adjust_holding_weights` | 按固定持仓周期调整权重 | `czsc/utils/trade.py:167` | 无（纯 pandas） |
+
+`resample_to_daily` 的 `dt` 返回 datetime，不承诺固定为 ns；ns/us/ms/s 日期键以共同精度合并，不截断时间。
+每个目标日期使用不晚于它的最近一组原始行，保留该组全部行和值。`only_trade_date=True` 沿用周一至周五工作日历，False 使用自然日。
 
 ---
 
