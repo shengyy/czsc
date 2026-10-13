@@ -192,6 +192,7 @@ def scan() -> list[SignalInfo]:
 
 # ---------------- 渲染 ----------------
 
+
 def xml_escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -214,24 +215,21 @@ def render_xml(signals: list[SignalInfo]) -> str:
         for s in group:
             parts.append(f"<h3>{xml_escape(s.name)}</h3>")
             if s.doc_summary:
-                parts.append(
-                    f"<p><b>一句话用途：</b>{xml_escape(s.doc_summary)}</p>"
-                )
+                parts.append(f"<p><b>一句话用途：</b>{xml_escape(s.doc_summary)}</p>")
             # 元数据表
             parts.append("<table>")
             parts.append('<colgroup><col width="100"/><col width="380"/></colgroup>')
             parts.append("<tbody>")
             parts.append(
                 f'<tr><td background-color="light-gray"><b>template</b></td>'
-                f'<td><code>{xml_escape(s.template)}</code></td></tr>'
+                f"<td><code>{xml_escape(s.template)}</code></td></tr>"
             )
             parts.append(
-                f'<tr><td background-color="light-gray"><b>category</b></td>'
-                f'<td>{xml_escape(s.category)}</td></tr>'
+                f'<tr><td background-color="light-gray"><b>category</b></td><td>{xml_escape(s.category)}</td></tr>'
             )
             parts.append(
                 f'<tr><td background-color="light-gray"><b>opcode</b></td>'
-                f'<td><code>{xml_escape(s.opcode)}</code></td></tr>'
+                f"<td><code>{xml_escape(s.opcode)}</code></td></tr>"
             )
             parts.append("</tbody>")
             parts.append("</table>")
@@ -253,9 +251,7 @@ def render_xml(signals: list[SignalInfo]) -> str:
                     parts.append(f"<li><code>{xml_escape(ex)}</code></li>")
                 parts.append("</ul>")
             else:
-                parts.append(
-                    "<p><i>该信号未在 docstring 中给出表达示例（可参考 template 自行组装）。</i></p>"
-                )
+                parts.append("<p><i>该信号未在 docstring 中给出表达示例（可参考 template 自行组装）。</i></p>")
 
             parts.append("<hr/>")
             parts.append("")
