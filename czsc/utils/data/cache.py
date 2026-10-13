@@ -11,7 +11,7 @@ import os
 import shutil
 import time
 from pathlib import Path
-from typing import Any, AnyStr
+from typing import Any
 
 import pandas as pd
 
@@ -172,7 +172,7 @@ class DiskCache:
         Path.unlink(file) if Path.exists(file) else None
 
 
-def disk_cache(path: AnyStr | Path = home_path, suffix: str = "pkl", ttl: int = -1):
+def disk_cache(path: str | Path = home_path, suffix: str = "pkl", ttl: int = -1):
     """缓存装饰器，支持多种数据格式
 
     :param path: 缓存文件夹父路径，默认为 home_path，每个函数的缓存文件夹为 path/func_name
@@ -227,7 +227,7 @@ def clear_expired_cache(path, max_age: int = 3600 * 24 * 30):
             _get_logger().info(f"已删除过期缓存文件：{file}, 修改时间：{file_stat.st_mtime}，当前时间：{time.time()}")
 
 
-def clear_cache(path: AnyStr | Path = home_path, subs=None, recreate=False):
+def clear_cache(path: str | Path = home_path, subs=None, recreate=False):
     """清空缓存文件夹
 
     :param path: 缓存文件夹路径

@@ -75,13 +75,13 @@ def _ensure_arrow_bytes(bars: BarsLike) -> bytes:
     raise TypeError(f"bars must be pd.DataFrame or bytes, got {type(bars)}")
 
 
-def _to_research_result(payload: dict[str, Any], cls=ResearchResult):
+def _to_research_result[T: ResearchResult](payload: dict[str, Any], cls: type[T]) -> T:
     """
     把 Rust 返回的 dict 装配为 ResearchResult / ReplayResult dataclass
 
     参数:
         payload: Rust PyO3 函数返回的字典，键名固定（meta / *_arrow / *_path）
-        cls:     目标 dataclass，默认 ResearchResult；run_replay 会传 ReplayResult
+        cls:     目标 dataclass（ResearchResult 或其子类 ReplayResult），保留返回类型
 
     备注:
         Rust 侧返回的 *_arrow 字段类型是 ``PyBytes``，

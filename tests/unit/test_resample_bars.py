@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 import pytest
@@ -335,12 +335,11 @@ def test_nan_ohlcv_input_raises():
 def test_tz_aware_dt_raises_at_rawbar_boundary():
     """tz-aware datetime 必须被 RawBar 构造器拒绝，错误信息引导 tz_localize(None)，
     防止 .timestamp() 把 09:31 Asia/Shanghai 静默转成 01:31 UTC 引发桶错位。"""
-    from datetime import timezone
 
     with pytest.raises(ValueError, match="tz-naive"):
         RawBar(
             symbol="000001.XSHG",
-            dt=datetime(2024, 12, 12, 9, 31, tzinfo=timezone.utc),
+            dt=datetime(2024, 12, 12, 9, 31, tzinfo=UTC),
             freq=Freq.F1,
             open=100.0,
             close=100.1,

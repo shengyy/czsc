@@ -2,7 +2,7 @@
 
 > 适用范围：czsc（Python wheel via PyPI + Rust crates via crates.io，共用 git tag `v<X.Y.Z>`）。
 > 目的：在 push tag 之前堵住 **CI 覆盖不到的质量风险与隐藏缺陷**。
-> CI 已强制项（版本一致性、stub 漂移、ruff/cargo fmt、clippy `-D warnings`、py3.10–3.13 pytest）不在本清单重复。
+> CI 已强制项（版本一致性、stub 漂移、ruff/cargo fmt、clippy `-D warnings`、项目声明的 Python pytest（含 slow））不在本清单重复。
 
 ---
 
@@ -95,11 +95,11 @@ PY
 
 ## 3. 本地 Rust 验证（CI 覆盖盲点）
 
-CI 因 `pyo3/extension-module` 限制，只对 5 个纯 Rust crate 跑 `cargo test`。`czsc-signals` / `czsc-trader` / `czsc-python` 的 Rust 测试**只能本地跑**：
+CI 对 8 个业务 crate 跑原生测试；仅排除启用 `pyo3/extension-module` 的 wheel producer `czsc-python`。涉及构建入口时，还需本地验证 wheel 和 stub：
 
-- [ ] `cargo build --workspace --release` 通过
-- [ ] `cargo test -p czsc-derive -p czsc-core -p czsc-utils -p czsc-ta -p czsc-signal-macros` 通过（与 CI 同步）
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` 通过
+- [ ] `PYO3_PYTHON=$(uv run --no-sync python -c 'import sys; print(sys.executable)') cargo build --workspace --release` 通过
+- [ ] `cargo test -p czsc-derive -p czsc-core -p czsc-utils -p czsc-ta -p czsc-signal-macros -p czsc-signals -p czsc-trader -p czsc` 通过（与 CI 同步）
+- [ ] `PYO3_PYTHON=$(uv run --no-sync python -c 'import sys; print(sys.executable)') cargo clippy --workspace --all-targets -- -D warnings` 通过
 - [ ] `cargo fmt --all -- --check` 通过
 - [ ] **stub 已重新生成并 commit**：
   ```bash
@@ -112,8 +112,12 @@ CI 因 `pyo3/extension-module` 限制，只对 5 个纯 Rust crate 跑 `cargo te
 
 ## 4. 本地 Python 验证
 
-- [ ] `uv sync --extra all`（仅在依赖变更后跑一次）+ `uv run maturin develop --release` 构建本地扩展
-- [ ] **全量测试含 slow 用例**（CI 默认跳过 `@pytest.mark.slow`，发布前必须显式跑）：
+- [ ] `.python-version` 与 `requires-python` 的安装范围一致；`uv lock --check` 通过
+- [ ] `uv run --no-sync python scripts/check_python_environment.py` 通过（解释器、锁定 pandas 与日期转换）
+- [ ] 类型检查使用项目 `.venv`，不在 basedpyright 配置中另写 Python 版本
+
+- [ ] `uv sync --locked --extra all`（仅在依赖变更后跑一次）+ `uv run maturin develop --release` 构建本地扩展
+- [ ] **全量测试含 slow 用例**（与 CI 一致，显式传 `--run-slow`）：
   ```bash
   uv run --no-sync pytest --run-slow
   ```
@@ -132,11 +136,14 @@ CI 因 `pyo3/extension-module` 限制，只对 5 个纯 Rust crate 跑 `cargo te
 
 ## 5. 本地 Wheel 验证（覆盖 CI smoke 盲区）
 
-CI smoke 仅覆盖 Linux x86_64 / macOS x86_64 / macOS arm64 / Windows x64。**Linux aarch64 与 musllinux 必须本地验证**：
+Linux 构建在容器内读取 `.python-version` 并执行解释器 guard。`maturin-action` 的默认 `rust-musl-cross` 镜像仅预装 Ubuntu 系统 Python，因此 musllinux lane 使用 action 已安装的 uv 显式安装声明版本，再把找到的绝对路径同时交给 maturin 和 `PYO3_PYTHON`。manylinux lane 使用镜像内的对应版本；两者均不可回退到宿主或旧解释器。
+
+CI smoke 覆盖 Linux x86_64 / macOS arm64 / Windows x64。**macOS x86_64、Linux aarch64 与 musllinux 仍需单独验证**：
 
 - [ ] `uv run maturin build --release --strip` 产物可被 `pip install --no-deps` 安装并 `import czsc` 成功
 - [ ] 如本次有触及 PyO3 边界（参数 / 返回值序列化、Arrow IPC、GIL release）：用 docker `--platform linux/arm64` 或 alpine 镜像本地拉一遍 wheel 安装 + import
-- [ ] Wheel 文件名版本符合 `czsc-<X.Y.Z>-cp310-abi3-<plat>.whl`（abi3 单 wheel 覆盖 3.10–3.13）
+- [ ] Wheel 文件名版本符合 `czsc-<X.Y.Z>-cp310-abi3-<plat>.whl`（仅表示 ABI 下界；安装范围由 wheel `Requires-Python` 决定）
+- [ ] 隔离安装后实际调用 `print_df_sample`；wheel smoke 会先移除 `tabulate`，再按锁约束安装 wheel，验证运行时依赖由包声明补齐
 
 ---
 
@@ -193,8 +200,8 @@ CI smoke 仅覆盖 Linux x86_64 / macOS x86_64 / macOS arm64 / Windows x64。**L
 | Stub 漂移 | 改了 `#[gen_stub_*]` 但忘了重跑 stub_gen | §3 最后一项 + CI `stub-drift` job |
 | 版本三方不一致 | 只 bump 了 Cargo 没 push tag、或反之 | §2 + CI `verify_version_consistency` |
 | `pyproject.toml` 误改 `version` | 手抖去掉 `dynamic` | `build.rs` 编译期校验 |
-| Slow 测试漏跑 | 平时 CI 不跑 `--run-slow` | §4 强制本地跑 |
-| `czsc-signals` / `czsc-trader` Rust 端回归 | CI 不能 `cargo test` 这两个 crate | §3 + Python pytest 端到端覆盖 |
+| Slow 测试漏跑 | 手动测试漏传 `--run-slow` | §4 与 CI 均显式传入 |
+| `czsc-signals` / `czsc-trader` Rust 端回归 | 只验证 Python 路径 | CI 原生测试 + Python pytest 端到端覆盖 |
 | ARM/musllinux wheel 加载失败 | CI smoke 不覆盖 | §5 本地 docker 验证 |
 | Rust crates 漏发 | tag push 只触发 dry-run，真发要手动 dispatch | §6 step 4 强提醒 |
 | crates.io rate-limit | 新 crate 创建 ~1/10min | `start_layer`/`end_layer` 断点续发 |
@@ -212,9 +219,9 @@ CI smoke 仅覆盖 Linux x86_64 / macOS x86_64 / macOS arm64 / Windows x64。**L
 ```bash
 set -e
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo build --workspace --release
-cargo test -p czsc-derive -p czsc-core -p czsc-utils -p czsc-ta -p czsc-signal-macros
+PYO3_PYTHON=$(uv run --no-sync python -c 'import sys; print(sys.executable)') cargo clippy --workspace --all-targets -- -D warnings
+PYO3_PYTHON=$(uv run --no-sync python -c 'import sys; print(sys.executable)') cargo build --workspace --release
+cargo test -p czsc-derive -p czsc-core -p czsc-utils -p czsc-ta -p czsc-signal-macros -p czsc-signals -p czsc-trader -p czsc
 PYO3_PYTHON=$(uv run python -c 'import sys; print(sys.executable)') \
   cargo run --bin stub_gen -p czsc-python --no-default-features --features stub-gen
 git diff --exit-code czsc/_native/__init__.pyi

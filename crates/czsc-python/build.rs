@@ -2,10 +2,9 @@
 //!
 //! 职责：
 //!
-//! 1. **校验 Python 版本约束**：`pyo3-stub-gen` 0.22 与 `pyo3` 0.22 都依赖
-//!    `Py_3_10` cfg，需要解释器 ≥ 3.10。当 `PYO3_PYTHON` 被显式指向更低
-//!    版本（或当前 PATH 里的 `python3` 低于 3.10）时，把错误信息提前
-//!    抛给开发者，而不是让 `cargo test` 在符号链接阶段才神秘失败。
+//! 1. **校验构建解释器**：读取仓库 `.python-version`，要求调用方显式传入
+//!    `PYO3_PYTHON`（maturin 自动传入所选解释器；直接 cargo 调用需自行设置）。
+//!    不从 PATH 猜测或回退。构建解释器与 abi3 最小 ABI 是不同约束。
 //!
 //! 2. **macOS cdylib 链接参数**：cdylib 需要 `-undefined dynamic_lookup`，
 //!    这样 Python 符号才能在运行时由宿主解释器解析。PyO3 的
@@ -106,89 +105,35 @@ fn check_version_lockstep() {
     }
 }
 
-/// 校验 `PYO3_PYTHON`（或 fallback 解释器）≥ 3.10。
-///
-/// 行为说明：
-/// - 优先使用 `PYO3_PYTHON` 指定的解释器；未设置则 fallback 到 `python3` → `python`。
-/// - 通过 `python -c "import sys; print(sys.version_info[:3]...)"` 拿到版本三元组。
-/// - 任一步骤失败都打印明确建议（设置 `PYO3_PYTHON` 指向 Python 3.10+），并直接 `panic!`，
-///   避免 cargo 报“神秘的 `Py_3_10` cfg 缺失”错误。
+/// 校验显式选择的构建解释器与 `.python-version` 一致。
+/// `PYO3_CONFIG_FILE` 描述目标 ABI，不能替代或绕过宿主解释器选择。
 fn check_python_version() {
-    // maturin 在 manylinux container 中 cross-compile wheel 时，会通过
-    // PYO3_CONFIG_FILE（而非 PYO3_PYTHON）精确指定目标解释器与 ABI 版本。
-    // 此时容器 PATH 上的 python3 默认是 3.9，无法反映实际目标 ABI，盲跑
-    // 这段 check 会让 wheel build 直接 panic。信任 maturin 的精确配置，
-    // 在 PYO3_CONFIG_FILE 存在时跳过预检（maturin 自己已经管控版本一致性）。
-    if std::env::var_os("PYO3_CONFIG_FILE").is_some() {
-        return;
-    }
-
-    let interpreter = std::env::var("PYO3_PYTHON")
-        .ok()
-        .or_else(|| which("python3"))
-        .or_else(|| which("python"))
-        .unwrap_or_else(|| {
-            panic!(
-                "czsc-python build.rs: 未找到 Python 解释器。\n\
-                 请设置环境变量 PYO3_PYTHON 指向 Python 3.10+，例如：\n\
-                 \texport PYO3_PYTHON=$(which python3.12)"
-            );
-        });
-
+    let version_file =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.python-version");
+    println!("cargo:rerun-if-changed={}", version_file.display());
+    let expected = std::fs::read_to_string(&version_file)
+        .expect("czsc-python: missing .python-version in the source distribution");
+    let expected = expected.trim();
+    let interpreter = std::env::var("PYO3_PYTHON").expect(
+        "czsc-python: set PYO3_PYTHON to the project interpreter; use \
+         PYO3_PYTHON=$(uv run --no-sync python -c 'import sys; print(sys.executable)') cargo ...",
+    );
     let output = Command::new(&interpreter)
         .args([
             "-c",
-            "import sys; v = sys.version_info; print(f'{v.major}.{v.minor}.{v.micro}')",
+            "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
         ])
         .output()
-        .unwrap_or_else(|err| {
-            panic!(
-                "czsc-python build.rs: 调用解释器 {interpreter} 失败：{err}\n\
-                 请设置 PYO3_PYTHON 指向可用的 Python 3.10+。"
-            )
-        });
-    if !output.status.success() {
-        panic!(
-            "czsc-python build.rs: 解释器 {interpreter} 返回非 0 状态码：{}\n{}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let mut parts = version.splitn(3, '.');
-    let major: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let minor: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-
-    if (major, minor) < (3, 10) {
-        panic!(
-            "czsc-python build.rs: 检测到 Python {version}（位于 {interpreter}），\n\
-             但本项目依赖 pyo3 / pyo3-stub-gen 要求 Python ≥ 3.10。\n\
-             修复方法（任选其一）：\n\
-             \t1. 安装 Python 3.10+ 并通过 PYO3_PYTHON 指定：\n\
-             \t   export PYO3_PYTHON=$(which python3.12)\n\
-             \t2. 使用 uv 同步项目环境后再构建：\n\
-             \t   uv sync --extra dev && uv run maturin develop\n"
-        );
-    }
-}
-
-/// 简易 `which` 实现：返回找到的可执行路径。
-///
-/// 仅依赖标准库；不引入 `which` crate，避免给 build 阶段引入额外依赖。
-fn which(name: &str) -> Option<String> {
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return Some(candidate.to_string_lossy().into_owned());
-        }
-        #[cfg(windows)]
-        {
-            let candidate_exe = dir.join(format!("{}.exe", name));
-            if candidate_exe.is_file() {
-                return Some(candidate_exe.to_string_lossy().into_owned());
-            }
-        }
-    }
-    None
+        .unwrap_or_else(|err| panic!("czsc-python: cannot run PYO3_PYTHON={interpreter}: {err}"));
+    assert!(
+        output.status.success(),
+        "czsc-python: PYO3_PYTHON={interpreter} failed: {}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let actual = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        actual.trim(),
+        expected,
+        "czsc-python: PYO3_PYTHON={interpreter} must match .python-version",
+    );
 }

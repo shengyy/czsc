@@ -84,6 +84,10 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      # The workspace check includes the private Python binding crate.
+      - name: Set up project Python
+        uses: ./.github/actions/python-environment
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 

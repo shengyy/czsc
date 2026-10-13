@@ -92,7 +92,7 @@ def push_card(card: dict, key: str) -> None:
         logger.error(response.json())
 
 
-def read_feishu_sheet(spread_sheet_token: str, sheet_id: str = None, **kwargs):
+def read_feishu_sheet(spread_sheet_token: str, sheet_id: str | None = None, **kwargs):
     """读取飞书电子表格
 
     id和token的获取，参考：https://open.feishu.cn/document/ukTMukTMukTM/uATMzUjLwEzM14CMxMTN/overview

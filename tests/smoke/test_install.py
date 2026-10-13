@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -80,26 +81,7 @@ def test_native_extension_present_in_install() -> None:
 
 
 def test_wheel_install_in_clean_venv(tmp_path: Path) -> None:
-    """在干净 venv 中安装 wheel 并执行最小冒烟导入。
-
-    测试场景：
-        1. 在 ``dist/`` 下查找最新构建的 ``czsc-*.whl`` 文件；
-        2. 在 pytest 提供的临时目录下创建一个全新的虚拟环境；
-        3. 使用 ``pip install --find-links`` 将 wheel 安装进该 venv；
-        4. 在该 venv 中执行 ``import czsc; print(czsc.CZSC.__module__)``。
-
-    设计要点：
-        - 使用 ``--find-links DIST_DIR`` 让 pip 能够找到 dist/ 下的同伴 wheel
-          （例如尚未发布到 PyPI 的预发布版 wbt wheel），不可用时再回退到 PyPI；
-        - 打印的是 ``czsc.CZSC.__module__``（类的模块名），而不是
-          ``type(czsc.CZSC).__module__``（其元类的模块名）。后者对于 PyO3 类
-          会返回 ``"builtins"``，无法验证迁移目标是否达成。
-
-    关键断言：
-        - ``pip install`` 退出码为 0；
-        - 子进程导入并打印的模块名包含 ``"czsc"``，证明 ``CZSC`` 类来自
-          ``czsc._native`` 命名空间。
-    """
+    """Install locked runtime dependencies and the wheel, then import outside the checkout."""
     # 选取 dist/ 下的所有 czsc 安装包，并以排序方式取最新版本
     wheels = sorted(DIST_DIR.glob("czsc-*.whl")) if DIST_DIR.is_dir() else []
     if not wheels:
@@ -108,32 +90,47 @@ def test_wheel_install_in_clean_venv(tmp_path: Path) -> None:
         # 里专门跑。所以本地/常规 CI 没 wheel 时跳过，不算失败。
         pytest.skip(f"在 {DIST_DIR} 下找不到 wheel；如需运行本测试，请先 `maturin build --release`")
 
-    # 构建一个全新的虚拟环境用于隔离安装
     venv = tmp_path / "venv"
     subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
-    pip = venv / "bin" / "pip"
-    py = venv / "bin" / "python"
-
-    # `--find-links DIST_DIR` 让 pip 解析 dist/ 下的同伴 wheel
-    # （例如尚未发布到 PyPI 的预发布 wbt-0.1.7 wheel，提前包含了
-    # czsc 在模块加载时引用的 top_drawdowns 等名称）。
-    # 缺少该参数时安装会从 PyPI 拉取 wbt 0.1.6，导致 czsc 启动失败。
-    install = subprocess.run(
-        [str(pip), "install", "--find-links", str(DIST_DIR), str(wheels[-1])],
+    py = venv / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    requirements = tmp_path / "runtime.txt"
+    subprocess.run(
+        ["uv", "export", "--locked", "--no-default-groups", "--no-emit-project", "--output-file", str(requirements)],
+        cwd=REPO_ROOT,
+        check=True,
         capture_output=True,
         text=True,
     )
-    if install.returncode != 0:
-        pytest.fail(f"pip install {wheels[-1].name} 失败: {install.stderr}")
-
-    # 在新 venv 中打印 czsc.CZSC.__module__，
-    # 该值由 PyO3 的 #[pyclass(module=...)] 设置为 "czsc._native"
+    subprocess.run(["uv", "pip", "sync", "--python", str(py), str(requirements)], check=True)
+    # Remove the printing dependency so the wheel metadata must restore it.
+    # The runtime export only constrains resolution; a dev extra cannot mask an omission.
+    subprocess.run(["uv", "pip", "uninstall", "--python", str(py), "tabulate"], check=True)
+    subprocess.run(
+        ["uv", "pip", "install", "--python", str(py), "--constraint", str(requirements), str(wheels[-1])],
+        check=True,
+    )
+    subprocess.run([str(py), str(REPO_ROOT / "scripts/check_python_environment.py")], check=True)
     smoke = subprocess.run(
-        [str(py), "-c", "import czsc; print(czsc.CZSC.__module__)"],
+        [
+            str(py),
+            "-c",
+            textwrap.dedent("""\
+                import sys
+                from pathlib import Path
+                import czsc
+                import czsc._native
+                from czsc.mock import generate_symbol_kines
+                from czsc.utils import print_df_sample
+                assert Path(czsc._native.__file__).is_relative_to(Path(sys.prefix))
+                print(czsc.CZSC.__module__)
+                frame = generate_symbol_kines("WHEEL_SAMPLE", "日线", "20240101", "20240115", seed=42)
+                print_df_sample(frame[["symbol"]], 2)
+                """),
+        ],
+        cwd=tmp_path,
         capture_output=True,
         text=True,
     )
-    if smoke.returncode != 0:
-        pytest.fail(f"冒烟 `import czsc` 失败: {smoke.stderr}")
-    out = smoke.stdout.strip()
-    assert "czsc" in out, f"冒烟测试输出异常：{out!r}"
+    assert smoke.returncode == 0, smoke.stderr
+    assert "czsc" in smoke.stdout
+    assert smoke.stdout.count("WHEEL_SAMPLE") == 2

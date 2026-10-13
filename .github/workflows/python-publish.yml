@@ -3,8 +3,8 @@
 # czsc 1.0.0+ is a mixed Rust/Python package: the czsc._native extension
 # is produced by the czsc-python crate (PyO3) and the pure-Python tree
 # under czsc/ is bundled alongside via maturin's `python-source = "."`.
-# We build per-platform abi3 wheels (Python 3.10+ ABI) so a single wheel
-# per (OS, arch) covers Python 3.10/3.11/3.12/3.13.
+# Wheels retain the cp310 abi3 floor; supported Python is constrained by
+# pyproject.toml. Build/smoke interpreters come from .python-version.
 #
 # 单一版本源：Cargo.toml [workspace.package].version。
 #   - pyproject.toml 设 dynamic = ["version"]，由 maturin 读取 Cargo.toml
@@ -43,7 +43,7 @@ jobs:
   #      Linux  : x86_64 (manylinux2014) + aarch64 (manylinux2014) + x86_64 (musllinux_1_2)
   #      macOS  : x86_64 (macos-13) + aarch64 (macos-14, Apple Silicon)
   #      Windows: x64
-  #    abi3-py310 → 单 wheel 覆盖 3.10/3.11/3.12/3.13
+  #    abi3-py310 是底层 ABI 下界，不代表公开 Python 支持范围。
   # ------------------------------------------------------------------
   build-wheels:
     name: Wheel ${{ matrix.platform.os }} ${{ matrix.platform.target }} ${{ matrix.platform.manylinux }}
@@ -66,10 +66,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+      - name: Set up project Python
+        id: python
+        uses: ./.github/actions/python-environment
 
       # Rust toolchain & target cache（manylinux 容器内不复用，仅 native 路径生效）
       - name: Cache cargo
@@ -84,7 +83,8 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           manylinux: ${{ matrix.platform.manylinux }}
-          args: --release --strip --out dist
+          maturin-version: v${{ steps.python.outputs.maturin-version }}
+          args: --release --strip --out dist -i "${{ matrix.platform.manylinux != '' && '$PYO3_PYTHON' || steps.python.outputs.python-path }}"
           sccache: 'true'
           # ring 0.17.x cross-compile 到 aarch64 manylinux2014 时，
           # manylinux2014 镜像里的 cross-gcc 没把 __ARM_ARCH 宏传给 ASM，
@@ -95,6 +95,16 @@ jobs:
           # 对应 CFLAGS_<triple>），所以无需 case 分支。
           before-script-linux: |
             export CFLAGS_aarch64_unknown_linux_gnu="-D__ARM_ARCH=8"
+            # setup-python stays on the host. maturin-action installs uv in the
+            # container, but rust-musl-cross only ships Ubuntu's system Python.
+            if [[ "${{ matrix.platform.manylinux }}" == musllinux* ]]; then
+              uv python install "$(cat .python-version)"
+              PYO3_PYTHON=$(uv python find --managed-python --no-project --no-python-downloads "$(cat .python-version)")
+            else
+              PYO3_PYTHON=$(command -v "python$(cat .python-version)")
+            fi
+            export PYO3_PYTHON
+            "$PYO3_PYTHON" scripts/check_python_environment.py --interpreter-only
 
       - name: List built wheels
         shell: bash
@@ -125,14 +135,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+      - name: Set up project Python
+        id: python
+        uses: ./.github/actions/python-environment
 
       - name: Build sdist (maturin)
         uses: PyO3/maturin-action@v1
         with:
+          maturin-version: v${{ steps.python.outputs.maturin-version }}
           command: sdist
           args: --out dist
 
@@ -150,11 +160,9 @@ jobs:
   # ------------------------------------------------------------------
   # 3) Smoke-test wheels
   #
-  #    跨 4 平台 (Linux x86_64 / macOS x86_64 / macOS arm64 / Windows x64)
-  #    用 --no-deps 安装 wheel，仅装最小必需依赖（pandas/numpy/loguru/
-  #    deprecated/parse），然后实际调用 czsc._native 中的 Rust 实现，
-  #    确认扩展模块在该平台能加载并运行，避免被 wbt/TA-Lib 等运行时
-  #    重型依赖在 PyPI 上的 wheel 可用性卡死发布流程。
+  #    Linux x86_64 / macOS arm64 / Windows x64 install runtime dependencies
+  #    exported from uv.lock, then the built wheel without resolving it again.
+  #    Import from outside the checkout so the source tree cannot mask the wheel.
   #
   #    smoke matrix 字段（os/target/manylinux）必须与 build-wheels matrix
   #    保持同名，这样能复用上面 ARTIFACT NAMING CONTRACT 中的同一公式
@@ -180,10 +188,12 @@ jobs:
           - { os: macos-latest,   target: aarch64, manylinux: '' }
           - { os: windows-latest, target: x64,     manylinux: '' }
     steps:
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up project Python
+        id: python
+        uses: ./.github/actions/python-environment
 
       - name: Download wheel
         uses: actions/download-artifact@v4
@@ -193,22 +203,27 @@ jobs:
           name: wheels-${{ matrix.smoke.os }}-${{ matrix.smoke.target }}-${{ matrix.smoke.manylinux || 'native' }}
           path: dist/
 
-      # 最小依赖集：czsc/__init__.py + czsc/fsa/__init__.py + czsc/traders/__init__.py
-      # 顶层 import 链上必须的几个。
-      # 注意：wbt 是 czsc 顶层 import（pyproject.toml 硬依赖）；requests 是 czsc.fsa
-      # 顶层 import；漏装任一项 smoke import czsc 会直接崩。
-      # 其余运行时依赖（pyarrow/polars/scipy/...）不在 import 路径上，--no-deps 跳过即可。
-      - name: Install + import czsc (no deps, then minimal deps)
+      - name: Install locked runtime dependencies and wheel
         shell: bash
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install --no-deps dist/*.whl
-          python -m pip install pandas numpy loguru deprecated parse pytz tqdm dill tenacity wbt requests
-          python -c "import czsc; print('czsc version:', czsc.__version__)"
-          python -c "from czsc import CZSC, RawBar, Freq; print('core imports OK')"
-          python -c "from czsc._native import signals; print('native signals namespace OK:', sorted(dir(signals))[:5])"
-          python -c "from czsc._native.signals import bar; print('bar signals callables:', [n for n in dir(bar) if not n.startswith('_')][:5])"
-          python -c "import czsc._native.ta as ta; print('rust ta module OK:', sorted(dir(ta))[:5])"
+          uv export --locked --no-default-groups --no-emit-project --output-file "$RUNNER_TEMP/runtime.txt"
+          uv venv .venv
+          uv pip sync --python .venv "$RUNNER_TEMP/runtime.txt"
+          # Prove this public utility's dependency comes from wheel metadata.
+          uv pip uninstall --python .venv tabulate
+          uv pip install --python .venv --constraint "$RUNNER_TEMP/runtime.txt" dist/*.whl
+          uv run --no-sync python scripts/check_python_environment.py
+
+      - name: Smoke installed wheel outside the checkout
+        shell: bash
+        run: |
+          PYTHON=$(uv run --no-sync python -c 'import sys; print(sys.executable)')
+          cd "$RUNNER_TEMP"
+          "$PYTHON" -c "import czsc; print('czsc version:', czsc.__version__)"
+          "$PYTHON" -c "from czsc import CZSC, RawBar, Freq; print('core imports OK')"
+          "$PYTHON" -c "from czsc._native import signals; print('native signals OK:', sorted(dir(signals))[:5])"
+          "$PYTHON" -c "import czsc._native.ta as ta; print('rust ta OK:', sorted(dir(ta))[:5])"
+          "$PYTHON" -c "from czsc.mock import generate_symbol_kines; from czsc.utils import print_df_sample; print_df_sample(generate_symbol_kines('SAMPLE', '日线', '20240101', '20240115', seed=42), 2)"
 
   # ------------------------------------------------------------------
   # 4) (optional) Publish to TestPyPI via workflow_dispatch
@@ -310,7 +325,8 @@ jobs:
           CARGO_VERSION="${{ steps.cargo_version.outputs.version }}"
           # wheel 文件名格式 czsc-<VERSION>-cp<py>-abi3-<plat>.whl
           # 显式锚定下一个 -cp，避免贪婪匹配把 -cp310-abi3-linux 吃进去
-          BUILT_VERSION=$(basename "$(ls dist/*.whl | head -1)" | sed -E 's/^czsc-([^-]+)-cp.*/\1/')
+          WHEELS=(dist/*.whl)
+          BUILT_VERSION=$(basename "${WHEELS[0]}" | sed -E 's/^czsc-([^-]+)-cp.*/\1/')
           # SemVer prerelease (Cargo: 1.0.0-rc.4) 与 PEP 440 normalized form
           # (PyPI wheel: 1.0.0rc4) 字符串形式不同但语义等价。maturin/setuptools
           # 在打 wheel 时强制按 PEP 440 归一化，所以 Cargo SemVer 形式需要先

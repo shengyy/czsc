@@ -3,7 +3,7 @@
 [![Downloads](https://static.pepy.tech/personalized-badge/czsc?period=total&units=international_system&left_color=red&right_color=orange&left_text=Downloads/Total)](https://pepy.tech/project/czsc)
 [![Downloads](https://static.pepy.tech/personalized-badge/czsc?period=month&units=international_system&left_color=red&right_color=orange&left_text=Downloads/Month)](https://pepy.tech/project/czsc)
 [![Downloads](https://static.pepy.tech/personalized-badge/czsc?period=week&units=international_system&left_color=red&right_color=orange&left_text=Downloads/Week)](https://pepy.tech/project/czsc)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
 [![PyPI](https://img.shields.io/pypi/v/czsc.svg)](https://pypi.org/project/czsc/)
 
 **[项目文档](https://s0cqcxuy3p.feishu.cn/wiki/wikcn3gB1MKl3ClpLnboHM1QgKf)** |
@@ -73,42 +73,31 @@ czsc (Python 包)
 
 ## 安装使用
 
-**注意：** Python 版本必须 **≥ 3.10**
+本公开 fork 维护 Python 3.14 一条运行路径，运行时要求 pandas ≥ 3.0.5。
+`.python-version` 选择开发与构建解释器；`pyproject.toml` 的 `requires-python`
+约束安装范围；`uv.lock` 固定开发、CI 与打包验证的依赖版本。
 
-从 PyPI 安装预编译版本（推荐）：
-
-```bash
-pip install czsc -U
-```
-
-使用 `uv` 安装（推荐开发环境）：
+从本 fork 源码安装（需要 Rust 工具链，准备步骤见下方“开发环境搭建”）：
 
 ```bash
-uv pip install czsc
-```
-
-从源码构建（需要 Rust 工具链和 maturin）：
-
-```bash
-# Rust 工具链准备见下方“开发环境搭建”
-# 安装 maturin
-pip install maturin
-
-# 克隆并构建
-git clone https://github.com/waditu/czsc.git
+git clone https://github.com/shengyy/czsc.git
 cd czsc
-maturin develop --release
+uv sync --locked --extra test
+uv run --no-sync python scripts/check_python_environment.py
 ```
 
-> **Rust 构建环境约束**：底层依赖 `pyo3` / `pyo3-stub-gen` 0.22 要求 Python ≥ 3.10。
-> 当系统默认 Python 低于 3.10 时，请通过环境变量显式指定：
->
-> ```bash
-> export PYO3_PYTHON=$(which python3.12)   # 或任意 3.10+ 的解释器
-> ```
->
-> 否则 `cargo build` / `cargo test` 会在 `crates/czsc-python/build.rs` 提前 panic 并给出修复建议。
-> 用 `uv sync --extra dev` 走 UV 流程时，UV 会自动选择项目声明的 Python，不需要额外设置。
+应用依赖应锁定本 fork 的完整 Git SHA；PyPI 的同名上游包不等于本 fork。
+
+`uv sync` 通过 maturin 构建扩展；构建工具来自默认 build 依赖组，精确版本由 `uv.lock` 固定。单独运行 cargo 构建或生成 stub 时，显式传入项目解释器：
+
+```bash
+PYO3_PYTHON=$(uv run --no-sync python -c 'import sys; print(sys.executable)') \
+  cargo run --bin stub_gen -p czsc-python --no-default-features --features stub-gen
+```
+
+`build.rs` 校验该解释器与 `.python-version` 一致，不从 PATH 选择替代解释器。
+PyO3 0.28 的 `abi3-py310` 保留为底层 ABI 下界；wheel 的公开 Python 支持范围由
+`Requires-Python` 元数据约束，不能从 `cp310-abi3` 文件名推断旧 Python 仍受支持。
 
 
 ## 快速开始
@@ -272,9 +261,8 @@ czsc 在权重回测、权重落地与 TA 算子一致性校验上依赖以下�
 |------|--------|------|----------------|
 | **wbt** | <https://github.com/zengbin93/wbt> | 策略持仓权重回测引擎（Weight Back Test） | **硬依赖**。提供 `WeightBacktest / daily_performance / top_drawdowns / generate_backtest_report` 等；`czsc.mock` 也转发自 `wbt.mock`。czsc 顶层 `from czsc import WeightBacktest` 即来自此包。 |
 | **wmr** | <https://github.com/zengbin93/wmr> | 策略持仓权重管理系统（Weight Manager，DuckDB / ClickHouse 双后端） | **下游配套**（非硬依赖）。wbt 负责"离线回测权重"，wmr 负责"实盘 / 投研环境下权重的持久化、版本管理与查询"。czsc 产出信号 / 持仓 → wbt 跑回测 → wmr 落库供下游消费。 |
-| **talib-rs** | <https://github.com/0xcjun/talib-rs> | 纯 Rust 实现的 TA-Lib 替代库 | **测试可选依赖**。仅 `tests/unit/test_ta_parity.py` 用它对 `czsc._native.ta`（EMA / SMA 等）做数值 parity 校验，确保 czsc 自研 TA 算子与 TA-Lib 行为一致。运行时代码不依赖。 |
 
-简言之：**wbt = 回测**，**wmr = 权重落地**，**talib-rs = TA 基准**；czsc 自身专注缠论核心算法（Rust）与信号-事件-交易体系，其余环节通过这三个项目解耦协同。
+简言之：**wbt = 回测**，**wmr = 权重落地**；czsc 自身专注缠论核心算法（Rust）与信号-事件-交易体系，其余环节通过这两个项目解耦协同。
 
 
 ## 开发环境搭建
@@ -291,17 +279,17 @@ rustup show active-toolchain
 rustup which cargo
 
 # 使用 UV 管理依赖（推荐）
-uv sync --extra dev
+uv sync --locked --extra test
 
 # 构建 Rust 扩展（开发模式）
-maturin develop
+uv run --no-sync maturin develop
 
 # 运行测试
-uv run pytest tests/ -v
+uv run --no-sync pytest tests/ --run-slow -v
 
 # 代码格式化
-uv run ruff format czsc/ tests/
-uv run ruff check czsc/ tests/
+uv run --no-sync ruff format czsc/ tests/
+uv run --no-sync ruff check czsc/ tests/
 ```
 
 
