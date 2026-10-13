@@ -89,3 +89,5 @@ pub use czsc_utils::trading_time::is_trading_time;
 
 pub use czsc_trader::czsc_signals::CzscSignals;
 pub use czsc_trader::sig_parse::SignalConfig;
+
+pub use czsc_signals::reference::{ReferenceBi, ReferenceKind, ReferenceWindow, SignalReference};

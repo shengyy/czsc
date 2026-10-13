@@ -161,15 +161,19 @@ impl CZSC {
         fxs
     }
 
+    /// Borrow the currently finished prefix of `bi_list` without cloning BI data.
+    pub fn finished_bis_slice(&self) -> &[BI] {
+        let len = if self.bars_ubi.len() < 5 {
+            self.bi_list.len().saturating_sub(1)
+        } else {
+            self.bi_list.len()
+        };
+        &self.bi_list[..len]
+    }
+
     /// 获取已经确认完成的笔。
     pub fn get_finished_bis(&self) -> Vec<BI> {
-        if self.bi_list.is_empty() {
-            return vec![];
-        }
-        if self.bars_ubi.len() < 5 {
-            return self.bi_list[..self.bi_list.len().saturating_sub(1)].to_vec();
-        }
-        self.bi_list.clone()
+        self.finished_bis_slice().to_vec()
     }
 
     /// 更新分析结果。同 dt 输入完整替换末根 K 线，结果等同于该版本只输入一次。

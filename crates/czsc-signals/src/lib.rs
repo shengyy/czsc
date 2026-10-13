@@ -34,6 +34,7 @@ pub mod cat {
     include!("cat.rs");
 }
 pub mod params;
+pub mod reference;
 pub mod registry;
 
 #[signal_module(category = "kline")]

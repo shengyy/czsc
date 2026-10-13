@@ -47,6 +47,10 @@ pub struct TaCache {
 
     /// 标记已缓存的最大长度，用于增量判断
     pub last_len: usize,
+
+    /// Current operands exported by reference-bearing signals, keyed by Signal::key().
+    #[serde(default)]
+    pub signal_references: HashMap<String, crate::reference::SignalReference>,
 }
 
 impl TaCache {
