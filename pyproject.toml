@@ -116,6 +116,10 @@ Repository = "https://github.com/waditu/czsc"
 
 [dependency-groups]
 dev = [
+    # Reproducible development/CI versions; runtime compatibility stays above.
+    # pandas 3 requires Python >= 3.11, so keep the Python 3.10 development lane.
+    "pandas==3.0.5; python_version >= '3.11'",
+    "pandas==2.3.3; python_version < '3.11'",
     "ipython>=8.37.0",
     "jupyter>=1.1.1",
     "pytest>=8.4.1",

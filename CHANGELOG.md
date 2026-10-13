@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `resample_to_daily` promotes both datetime join keys to a common precision, supporting ns/us/ms/s inputs on pandas 2 and 3 without rounding dates or changing the snapshot rows carried forward. The output remains datetime without a fixed unit guarantee.
+
+### Development
+
+- Pin development/CI pandas to 3.0.5 on Python >= 3.11 and retain 2.3.3 on Python 3.10. Runtime pandas minimums and Python >= 3.10 support are unchanged; other locked package versions are retained.
+
 ## [1.0.1+ashare.20261013] — 2026-10-13
 
 ### Added

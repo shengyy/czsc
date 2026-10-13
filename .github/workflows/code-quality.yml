@@ -121,7 +121,7 @@ jobs:
   #     Check pandas dates before building czsc._native, then run pytest.
   # ------------------------------------------------------------------
   test:
-    name: Python tests (py${{ matrix.python-version }})
+    name: Python tests (py${{ matrix.python-version }}, pandas${{ matrix.pandas-version }})
     env:
       UV_PYTHON: ${{ matrix.python-version }}
     needs: rust-tests
@@ -129,7 +129,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
+        # Mirrors the dev group's pins, without raising the public Python floor.
+        include:
+          - {python-version: '3.10', pandas-version: '2.3.3'}
+          - {python-version: '3.11', pandas-version: '3.0.5'}
+          - {python-version: '3.12', pandas-version: '3.0.5'}
+          - {python-version: '3.13', pandas-version: '3.0.5'}
+          - {python-version: '3.14', pandas-version: '3.0.5'}
 
     steps:
     - name: Checkout code
@@ -160,7 +166,7 @@ jobs:
         uv sync --locked --no-install-project --extra all
 
     - name: Verify selected interpreter and pandas datetime support
-      run: uv run --no-sync python scripts/check_python_environment.py --expected-python ${{ matrix.python-version }}
+      run: uv run --no-sync python scripts/check_python_environment.py --expected-python ${{ matrix.python-version }} --expected-pandas ${{ matrix.pandas-version }}
 
     - name: Build czsc._native (maturin develop)
       run: |
