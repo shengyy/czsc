@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Python 3.14 requires pandas >= 2.3.3, the [first generally compatible release](https://pandas.pydata.org/pandas-docs/version/2.3.3/whatsnew/v2.3.3.html). The lockfile updates only pandas 2.3.2 → 2.3.3. CI now selects the matrix interpreter explicitly, includes Python 3.14, and checks datetime construction before building the native extension.
+
 ## [1.0.1] — 2026-08-09
 
 ### Added

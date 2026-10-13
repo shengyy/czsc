@@ -124,12 +124,14 @@ jobs:
   # ------------------------------------------------------------------
   test:
     name: Python tests (py${{ matrix.python-version }})
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
     needs: rust-tests
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.11', '3.12', '3.13']
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
 
     steps:
     - name: Checkout code
@@ -157,21 +159,23 @@ jobs:
     - name: Install project dependencies (Python only)
       run: |
         # uv sync 装 Python 依赖到 .venv；czsc._native 还需要 maturin develop 单独构建。
-        uv sync --extra all
+        uv sync --locked --no-install-project --extra all
+
+    - name: Verify selected interpreter and pandas datetime support
+      run: uv run --no-sync python scripts/check_python_environment.py --expected-python ${{ matrix.python-version }}
 
     - name: Build czsc._native (maturin develop)
       run: |
-        uv pip install maturin
-        uv run maturin develop --release
+        uv run --no-sync maturin develop --release
 
     - name: Smoke-import czsc
       run: |
-        uv run python -c "import czsc; print(f'CZSC version: {czsc.__version__}')"
-        uv run python -c "from czsc import CZSC, RawBar, Freq; print('core imports OK')"
+        uv run --no-sync python -c "import czsc; print(f'CZSC version: {czsc.__version__}')"
+        uv run --no-sync python -c "from czsc import CZSC, RawBar, Freq; print('core imports OK')"
 
     - name: Run pytest
       run: |
-        uv run pytest tests/ -v --cov=czsc --cov-report=xml --cov-report=term
+        uv run --no-sync pytest tests/ -v --cov=czsc --cov-report=xml --cov-report=term
 
     - name: Upload coverage to Codecov
       if: matrix.python-version == '3.11'
