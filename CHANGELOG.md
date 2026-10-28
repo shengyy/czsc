@@ -11,7 +11,7 @@
 
 ### Fixed
 
-- Canonical BI centres now separate incoming context from the three-BI core. An outside retest can reassign two trailing BIs to a confirmed new core while preserving the old initial three BIs. `CZSC.zs_list`, BS1/BS2/BS3 and signal references share this one core implementation; signals no longer construct private centre boundaries. BS1 retains single-centre divergence, BS2 requires the immediately following strict pullback, and BS3 uses the latest valid finished centre with an unbroken raw-price retest path.
+- Canonical BI centres now separate incoming context from the three-BI core. An outside retest can reassign two trailing BIs to a confirmed new core while preserving the old initial three BIs. `CZSC.zs_list`, BS1/BS2/BS3 and signal references share this one core implementation; signals no longer construct private centre boundaries. BS1 permits a single centre with an observable same-direction external entry, rather than every internal centre swing, BS2 requires the immediately following strict pullback, and BS3 uses the latest valid finished centre with an unbroken raw-price retest path.
 - `print_df_sample` now declares its `tabulate` runtime dependency, including in built wheels. Environment defaults, nullable Feishu sheet selection and research/replay result classes have accurate type annotations without changing runtime behavior.
 - `resample_to_daily` promotes both datetime join keys to a common precision, supporting ns/us/ms/s inputs on pandas 3 without rounding dates or changing the snapshot rows carried forward. The output remains datetime without a fixed unit guarantee.
 
