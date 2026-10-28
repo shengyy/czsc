@@ -11,7 +11,7 @@
 
 ### Fixed
 
-- BS1/BS2/BS3 auxiliary signals now use canonical BI centres and explicit entering, leaving and first-retest relationships. BS1 includes observable single-centre consolidation divergence; its incoming leg can be the centre's first member even when older centres precede it. BS2 requires the immediately preceding structural BS1 and a strict unbroken anchor; BS3 uses the latest valid finished centre and checks the complete retest price path. Old arbitrary-window overlaps no longer override a newer centre.
+- BS1/BS2/BS3 auxiliary signals now use canonical BI groups and explicit entering, leaving and first-retest relationships. BS1 includes observable single-centre consolidation divergence; its incoming leg can be the group's first member even when older centres precede it. That member is excluded from the internal centre core, which must remain valid across every remaining member. BS2 requires the immediately preceding structural BS1 and a strict unbroken anchor; BS3 uses the latest valid finished centre and checks the complete retest price path. Public ZS boundaries are unchanged. Old arbitrary-window overlaps no longer override a newer centre.
 - `print_df_sample` now declares its `tabulate` runtime dependency, including in built wheels. Environment defaults, nullable Feishu sheet selection and research/replay result classes have accurate type annotations without changing runtime behavior.
 - `resample_to_daily` promotes both datetime join keys to a common precision, supporting ns/us/ms/s inputs on pandas 3 without rounding dates or changing the snapshot rows carried forward. The output remains datetime without a fixed unit guarantee.
 
