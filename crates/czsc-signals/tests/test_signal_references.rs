@@ -13,10 +13,10 @@ fn third_buy_captures_latest_centre_and_updates_same_value() {
     let mut c = structure(THIRD);
     let mut cache = TaCache::default();
     let (key, value) = evaluate(&c, "cxt_third_buy_V230228", 1, &mut cache);
-    assert_eq!(value, "三买_12笔_任意_0");
+    assert_eq!(value, "三买_11笔_任意_0");
     let r = cache.signal_references[&key].clone();
     assert_eq!(r.kind, ReferenceKind::CanonicalZs);
-    assert_eq!((r.zd, r.zg), (11., 14.));
+    assert_eq!((r.zd, r.zg), (12., 14.));
     assert_eq!(
         r.overlap_bis.iter().map(|b| b.position).collect::<Vec<_>>(),
         [1, 2, 3]
@@ -99,11 +99,18 @@ fn third_bs_is_symmetric_and_incomplete_tail_does_not_hide_the_centre() {
 
 #[test]
 fn old_overlap_inside_new_centre_and_second_retest_are_rejected() {
-    // A second centre at [15,18] replaces [11,14]. Final low 17 clears the old
-    // upper bound but is inside the new centre: the old implementation hit.
-    let c = structure(&[
-        10., 14., 11., 15., 12., 16., 13., 17., 14., 18., 15., 19., 17., 20., 17.5,
-    ]);
+    // The first outside retest plus two following BIs establishes [17,18].
+    // A later low at 17.5 is inside it although it clears the old [12,14].
+    let mut newer = THIRD.to_vec();
+    newer.extend([19., 17., 20., 17.5]);
+    let c = structure(&newer);
+    let zs = get_zs_seq(c.finished_bis_slice());
+    let latest = zs
+        .iter()
+        .rev()
+        .find(|z| z.bis.len() >= 3 && z.is_valid())
+        .unwrap();
+    assert_eq!((latest.zd, latest.zg), (17., 18.));
     for name in ["cxt_third_buy_V230228", "cxt_third_bs_V230318"] {
         assert!(
             evaluate(&c, name, 1, &mut TaCache::default())
@@ -153,4 +160,43 @@ fn an_interior_wick_cannot_be_hidden_by_the_bi_endpoint() {
             .1
             .starts_with("其他")
     );
+}
+
+#[test]
+fn a_confirmed_rollback_core_replaces_the_old_reference() {
+    for buy in [true, false] {
+        // The final outside retest confirms [11,14]. Until it is finished,
+        // the finished-BI view still contains only the older [15,18] core.
+        let prices: Vec<_> = [20., 14., 19., 15., 18., 10., 16., 11., 14.]
+            .into_iter()
+            .map(|p| if buy { 40. - p } else { p })
+            .collect();
+        let mut c = structure(&prices);
+        let mut cache = TaCache::default();
+        let (key, value) = evaluate(&c, "cxt_third_bs_V230318", 1, &mut cache);
+        assert_eq!(
+            value,
+            if buy {
+                "三买_任意_任意_0"
+            } else {
+                "三卖_任意_任意_0"
+            }
+        );
+        let old = cache.signal_references[&key].clone();
+        assert_eq!((old.zd, old.zg), if buy { (22., 25.) } else { (15., 18.) });
+        c.bars_ubi = c.bi_list[0].bars.clone();
+        let zones = get_zs_seq(c.finished_bis_slice());
+        let latest = zones.last().unwrap();
+        assert_eq!(latest.bis.len(), 3);
+        assert_eq!(
+            (latest.zd, latest.zg),
+            if buy { (26., 29.) } else { (11., 14.) }
+        );
+        assert!(
+            evaluate(&c, "cxt_third_bs_V230318", 1, &mut cache)
+                .1
+                .starts_with("其他")
+        );
+        assert!(!cache.signal_references.contains_key(&key));
+    }
 }

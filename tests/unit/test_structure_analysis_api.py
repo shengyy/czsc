@@ -87,7 +87,8 @@ def test_zs_symmetry_and_trend_functions_on_non_empty_bis() -> None:
     ]
     zss = get_zs_seq(symmetric)
     assert len(zss) == 1
-    assert len(zss[0].bis) == 3
+    assert len(zss[0].bis) == 2  # first BI is explicit entering context
+    assert zss[0].sdt == symmetric[1].sdt
     assert is_symmetry_zs(symmetric, th=0.01)
 
     up = [
@@ -113,6 +114,48 @@ def test_czsc_zs_list_matches_finished_bis_analysis() -> None:
     expected = get_zs_seq(c.finished_bis)
     assert len(c.zs_list) == len(expected)
     assert [len(zs.bis) for zs in c.zs_list] == [len(zs.bis) for zs in expected]
+    assert [(z.sdt, z.edt, z.zd, z.zg, z.dd, z.gg) for z in c.zs_list] == [
+        (z.sdt, z.edt, z.zd, z.zg, z.dd, z.gg) for z in expected
+    ]
+
+
+@pytest.mark.parametrize("mirror", [False, True])
+@pytest.mark.parametrize(
+    "prices, lengths, bounds",
+    [
+        ([20, 14, 18, 15, 19, 10, 16, 11, 14], [4, 3], [(15, 18), (11, 14)]),
+        ([24, 12, 20, 14, 15, 14.5, 17, 16, 16.5, 11], [5, 3], [(14, 15), (16, 16.5)]),
+    ],
+)
+def test_canonical_core_boundary_examples_through_python(prices, lengths, bounds, mirror) -> None:
+    # Shared, direction-ordered nonzero-width FX intervals exercise the exact
+    # reported geometric examples through the public Rust binding.
+    prices = [60 - p if mirror else p for p in prices]
+    fxs = []
+    for i, p in enumerate(prices):
+        top = p > prices[1] if i == 0 else p > prices[i - 1]
+        fxs.append(
+            FX(
+                "000001",
+                datetime(2024, 1, 1) + timedelta(minutes=10 * i),
+                Mark.G if top else Mark.D,
+                p if top else p + 0.1,
+                p - 0.1 if top else p,
+                p,
+                [],
+            )
+        )
+    bis = [
+        BI("000001", Direction.Up if b.fx > a.fx else Direction.Down, a, b, [], [])
+        for a, b in zip(fxs[:-1], fxs[1:], strict=True)
+    ]
+    centres = get_zs_seq(bis)
+    assert [len(z.bis) for z in centres] == lengths
+    assert [(z.zd, z.zg) for z in centres] == [(60 - zg, 60 - zd) if mirror else (zd, zg) for zd, zg in bounds]
+    assert all(z.is_valid() for z in centres)
+    assert centres[0].sdt == bis[1].sdt  # entering BI is not part of its core
+    members = [b.sdt for z in centres for b in z.bis]
+    assert len(members) == len(set(members))
 
 
 def test_check_gap_info_returns_compatible_dicts() -> None:

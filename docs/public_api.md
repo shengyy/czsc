@@ -112,7 +112,7 @@ reference = cs.signal_references.get(key) # 无当前命中引用时为 None
 | `last_bi` | ReferenceBi | 本次判定用的首次回抽笔 |
 | `zd`, `zg` | float | 所选标准中枢下沿、上沿，允许相等；回抽须严格在边界外 |
 
-`1.0.1+ashare.20261028` 收紧 BS1/BS2/BS3 语义，一买/一卖仍包含可验证的单中枢盘整背驰代理。算法与迁移边界见 [signals 合同](../crates/czsc-signals/README.md)。跨版本升级须从 K 线重建，不能把 Rust 热快照里的旧标签或引用缓存当作新版结果。
+`1.0.1+ashare.20261028` 更新核心层唯一的中枢划分及 BS1/BS2/BS3 语义，一买/一卖仍包含可验证的单中枢盘整背驰代理。公开 `ZS` 的边界、成员及依赖它的结构止损参考会变化；进入上下文、核心三笔与确认回退规则见 [core 合同](../crates/czsc-core/README.md)，信号判定见 [signals 合同](../crates/czsc-signals/README.md)。跨版本升级须从 K 线重建，不能把 Rust 热快照里的旧标签或引用缓存当作新版结果。
 
 每个 `ReferenceBi` 只有 `position: int`（窗口内从 1 开始）、
 `direction: "Up" | "Down"`（Rust Direction 的序列化值）、

@@ -100,99 +100,88 @@ fn a_single_centre_with_observable_entry_can_diverge_and_have_a_second_point() {
 }
 
 #[test]
-fn earlier_opposite_centre_does_not_hide_a_member_entry_or_its_second_point() {
+fn centre_members_are_not_reinterpreted_as_entries_for_an_opposite_signal() {
     use czsc_core::analyze::utils::get_zs_seq;
     for buy in [true, false] {
-        // A prior low centre [5,7] breaks upwards to 20. The next Down BI
-        // starts the new centre and is its incoming leg; the previous Up BI
-        // is not an incoming Down leg. Mirror the whole path for a first sell.
-        let local = [20., 10., 15., 11., 14., 9., 16., 14.5];
-        let prices: Vec<_> = [8., 4., 7., 5.]
+        let prices: Vec<_> = [8., 4., 7., 5., 20., 10., 15., 11., 14., 9., 16., 14.5]
             .into_iter()
-            .chain(local)
             .map(|p| if buy { p } else { 30. - p })
             .collect();
-        let direction = if buy { Direction::Down } else { Direction::Up };
         let mut c = structure(&prices);
         c.bi_list[4].bars = vec![c.bi_list[4].bars[0].clone(); 9];
+        let direction = if buy { Direction::Down } else { Direction::Up };
         let centres = get_zs_seq(&c.bi_list[..8]);
-        assert_eq!(centres.len(), 2);
-        assert!(centres.iter().all(|z| z.bis.len() == 4 && z.is_valid()));
-        assert_eq!(centres[1].bis[0].direction, direction);
+        let latest = centres.last().unwrap();
+        assert!(latest.is_valid() && latest.bis.len() >= 3);
+        assert_eq!(latest.bis[0].direction, direction);
+        // Here the incoming leg is the prior upward breakout, not the first
+        // downward member of its core. All signal families use that same ZS.
         assert_ne!(c.bi_list[3].direction, direction);
-        // The local structure and its window are invariant to earlier history.
-        assert_eq!(first_point(&c, 9, direction), Some(5));
-        assert!(second_point(&c, 11, direction));
-        c.bi_list[4].bars.truncate(6);
         assert_eq!(first_point(&c, 9, direction), None);
         assert!(!second_point(&c, 11, direction));
     }
 }
 
 #[test]
-fn member_entry_is_excluded_from_the_centre_core_bounds() {
-    use czsc_core::{analyze::utils::get_zs_seq, objects::zs::ZS};
+fn canonical_core_excludes_the_explicit_entry_in_both_directions() {
+    use czsc_core::analyze::utils::get_zs_seq;
     for buy in [true, false] {
-        for prefix in [&[][..], &[8., 4., 7., 5.][..]] {
-            let prices: Vec<_> = prefix
-                .iter()
-                .copied()
-                .chain([18., 12., 20., 14., 15., 11., 16., 15.5])
-                .map(|p| if buy { p } else { 40. - p })
-                .collect();
-            let mut c = structure(&prices);
-            let entry = prefix.len();
-            c.bi_list[entry].bars = vec![c.bi_list[entry].bars[0].clone(); 9];
-            let direction = if buy { Direction::Down } else { Direction::Up };
-            let zones = get_zs_seq(&c.bi_list[..entry + 4]);
-            let canonical = zones.last().unwrap();
-            let core = ZS::new(canonical.bis[1..].to_vec());
-            assert!(canonical.is_valid() && core.is_valid());
-            if buy {
-                assert_eq!((canonical.zd, canonical.zg), (14., 18.));
-                assert_eq!((core.zd, core.zg), (14., 15.));
-            } else {
-                assert_eq!((canonical.zd, canonical.zg), (22., 26.));
-                assert_eq!((core.zd, core.zg), (25., 26.));
-            }
-            assert_eq!(first_point(&c, entry + 5, direction), Some(5));
-            assert!(second_point(&c, entry + 7, direction));
-            c.bi_list[entry].bars.truncate(6);
-            assert_eq!(first_point(&c, entry + 5, direction), None);
-        }
-    }
-}
-
-#[test]
-fn member_entry_boundary_counterexample_uses_the_inner_three_bis() {
-    use czsc_core::{analyze::utils::get_zs_seq, objects::zs::ZS};
-    // Reported example: entry 18->12, core 12->18->11->15, exit 15->10.
-    // Including entry makes canonical ZG=18 and the old entry.high>ZG fail.
-    let mut c = structure(&[18., 12., 18., 11., 15., 10.]);
-    c.bi_list[0].bars = vec![c.bi_list[0].bars[0].clone(); 9];
-    let zones = get_zs_seq(&c.bi_list[..4]);
-    assert_eq!((zones[0].zd, zones[0].zg), (12., 18.));
-    let core = ZS::new(zones[0].bis[1..].to_vec());
-    assert_eq!((core.zd, core.zg, core.dd, core.gg), (12., 15., 11., 18.));
-    assert_eq!(first_point(&c, 5, Direction::Down), Some(5));
-}
-
-#[test]
-fn member_entry_core_must_still_overlap_every_extension_leg() {
-    use czsc_core::{analyze::utils::get_zs_seq, objects::zs::ZS};
-    for buy in [true, false] {
-        let prices: Vec<_> = [24., 12., 20., 14., 15., 14.5, 17., 16., 16.5, 11.]
+        let prices: Vec<_> = [18., 12., 20., 14., 15., 11., 16., 15.5]
             .into_iter()
             .map(|p| if buy { p } else { 40. - p })
             .collect();
         let mut c = structure(&prices);
         c.bi_list[0].bars = vec![c.bi_list[0].bars[0].clone(); 9];
-        let zones = get_zs_seq(&c.bi_list[..8]);
+        let direction = if buy { Direction::Down } else { Direction::Up };
+        let zones = get_zs_seq(&c.bi_list[..4]);
         assert_eq!(zones.len(), 1);
+        assert_eq!(zones[0].sdt, c.bi_list[1].start_dt());
+        assert_eq!(
+            (zones[0].zd, zones[0].zg),
+            if buy { (14., 15.) } else { (25., 26.) }
+        );
+        assert_eq!(first_point(&c, 5, direction), Some(5));
+        assert!(second_point(&c, 7, direction));
+        c.bi_list[0].bars.truncate(6);
+        assert_eq!(first_point(&c, 5, direction), None);
+    }
+}
+
+#[test]
+fn reported_entry_boundary_example_uses_the_public_core() {
+    use czsc_core::analyze::utils::get_zs_seq;
+    let mut c = structure(&[18., 12., 18., 11., 15., 10.]);
+    c.bi_list[0].bars = vec![c.bi_list[0].bars[0].clone(); 9];
+    let zones = get_zs_seq(&c.bi_list[..4]);
+    assert_eq!(
+        (zones[0].zd, zones[0].zg, zones[0].dd, zones[0].gg),
+        (12., 15., 11., 18.)
+    );
+    assert_eq!(first_point(&c, 5, Direction::Down), Some(5));
+}
+
+#[test]
+fn later_departure_closes_the_old_core_instead_of_invalidating_it() {
+    use czsc_core::analyze::utils::get_zs_seq;
+    use czsc_signals::utils::bs::third_point;
+    for buy in [true, false] {
+        let prices: Vec<_> = [24., 12., 20., 14., 15., 14.5, 17., 16., 16.5, 11.]
+            .into_iter()
+            .map(|p| if buy { p } else { 40. - p })
+            .collect();
+        let c = structure(&prices);
+        let zones = get_zs_seq(&c.bi_list[..8]);
+        assert_eq!(zones.len(), 2);
+        assert_eq!(zones[0].bis.len(), 5);
+        assert_eq!(
+            (zones[0].zd, zones[0].zg),
+            if buy { (14., 15.) } else { (25., 26.) }
+        );
         assert!(zones[0].is_valid());
-        // The early inner core [14,15] is no longer touched by 17->16 or
-        // 16->16.5, although both still touch canonical [14,20].
-        assert!(!ZS::new(zones[0].bis[1..].to_vec()).is_valid());
+        let before = structure(&prices[..8]);
+        let point =
+            third_point(&before, 1).expect("first outside retest uses the same public core");
+        assert_eq!((point.zd, point.zg), (zones[0].zd, zones[0].zg));
         let direction = if buy { Direction::Down } else { Direction::Up };
         assert_eq!(first_point(&c, 9, direction), None);
     }
@@ -209,47 +198,48 @@ fn second_point_public_signal_combines_real_sma_with_structure_in_both_direction
     ]
     .into();
     for buy in [true, false] {
-        for prefix in [&[][..], &[8., 4., 7., 5.][..]] {
-            for local in [
-                [20., 10., 15., 11., 14., 9., 16., 14.5],
-                [18., 12., 20., 14., 15., 11., 16., 15.5],
-            ] {
-                let prices: Vec<_> = prefix
-                    .iter()
-                    .copied()
-                    .chain(local)
-                    .map(|p| if buy { p } else { 30. - p })
-                    .collect();
-                let mut c = structure(&prices);
-                let entry = prefix.len();
-                c.bi_list[entry].bars = vec![c.bi_list[entry].bars[0].clone(); 9];
-                let run = |c: &_| {
-                    (SIGNAL_REGISTRY["cxt_second_bs_V230320"].func)(
-                        c,
-                        &params,
-                        &mut TaCache::default(),
-                    )[0]
-                    .value()
-                };
-                assert_eq!(
-                    run(&c),
-                    if buy {
-                        "二买_任意_任意_0"
-                    } else {
-                        "二卖_任意_任意_0"
-                    }
-                );
-                // A wick breaches the anchor without changing closing prices / SMA.
-                let boundary = if buy { local[5] } else { 30. - local[5] };
+        for (local, entry) in [
+            (vec![20., 10., 15., 11., 14., 9., 16., 14.5], 0),
+            (vec![18., 12., 20., 14., 15., 11., 16., 15.5], 0),
+            (
+                vec![30., 24., 28., 25., 29., 20., 23., 21., 24., 19., 30., 25.],
+                4,
+            ),
+        ] {
+            let prices: Vec<_> = local
+                .iter()
+                .map(|&p| if buy { p } else { 60. - p })
+                .collect();
+            let mut c = structure(&prices);
+            c.bi_list[entry].bars = vec![c.bi_list[entry].bars[0].clone(); 9];
+            let run = |c: &_| {
+                (SIGNAL_REGISTRY["cxt_second_bs_V230320"].func)(c, &params, &mut TaCache::default())
+                    [0]
+                .value()
+            };
+            assert_eq!(
+                run(&c),
                 if buy {
-                    c.bi_list[entry + 6].fx_b.low = boundary;
-                    c.bars_raw.last_mut().unwrap().low = boundary;
+                    "二买_任意_任意_0"
                 } else {
-                    c.bi_list[entry + 6].fx_b.high = boundary;
-                    c.bars_raw.last_mut().unwrap().high = boundary;
+                    "二卖_任意_任意_0"
                 }
-                assert!(run(&c).starts_with("其他_"));
+            );
+            // A wick breaches the anchor without changing closing prices / SMA.
+            let anchor = c.bi_list.len() - 3;
+            let boundary = if buy {
+                c.bi_list[anchor].get_low()
+            } else {
+                c.bi_list[anchor].get_high()
+            };
+            if buy {
+                c.bi_list.last_mut().unwrap().fx_b.low = boundary;
+                c.bars_raw.last_mut().unwrap().low = boundary;
+            } else {
+                c.bi_list.last_mut().unwrap().fx_b.high = boundary;
+                c.bars_raw.last_mut().unwrap().high = boundary;
             }
+            assert!(run(&c).starts_with("其他_"));
         }
     }
 }

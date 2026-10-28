@@ -15,13 +15,19 @@ pub fn prefix_end(c: &CZSC, di: usize) -> Option<usize> {
 }
 
 fn valid_centres(bis: &[BI]) -> Vec<(usize, ZS)> {
-    let mut start = 0;
     get_zs_seq(bis)
         .into_iter()
         .filter_map(|zs| {
-            let index = start;
-            start += zs.bis.len();
-            (zs.bis.len() >= 3 && zs.is_valid()).then_some((index, zs))
+            if zs.bis.len() < 3 || !zs.is_valid() {
+                return None;
+            }
+            // Entering legs and unformed candidates need not be ZS members.
+            // A confirmed outside seed can also move two trailing members.
+            let first = zs.bis.first()?;
+            let start = bis
+                .iter()
+                .position(|bi| bi.fx_a.dt == first.fx_a.dt && bi.fx_b.dt == first.fx_b.dt)?;
+            Some((start, zs))
         })
         .collect()
 }
@@ -60,37 +66,23 @@ pub fn first_point(c: &CZSC, end: usize, direction: Direction) -> Option<usize> 
     // Exclude the outgoing leg so it cannot change its own trend/background.
     let centres = valid_centres(&c.bi_list[..end - 1]);
     let (start, zs) = centres.last()?;
-    let (entry_index, inner) = if zs.bis[0].direction == direction {
-        // get_zs_seq starts a new centre with the first outside retest of the
-        // previous centre. That BI can itself be the incoming leg, regardless
-        // of how many older centres precede it. It must not be its own only
-        // evidence: remove it before calculating the independent centre core.
-        if zs.bis.len() < 4 {
-            return None;
-        }
-        let inner = ZS::new(zs.bis[1..].to_vec());
-        if !inner.is_valid() || inner.zg < zs.zd || inner.zd > zs.zg {
-            return None;
-        }
-        (*start, Some(inner))
-    } else {
-        (start.checked_sub(1)?, None)
-    };
-    let core = inner.as_ref().unwrap_or(zs);
+    // Core construction owns the entry/core distinction. Never choose a
+    // different centre phase according to the signal being tested.
+    let entry_index = start.checked_sub(1)?;
     let entry = &c.bi_list[entry_index];
     if *start + zs.bis.len() != end - 1 || entry.direction != direction {
         return None;
     }
     let entry_and_extreme = if direction == Direction::Down {
-        entry.get_high() > core.zg
-            && entry.get_low() <= core.zg
-            && last.get_high() >= core.zd
-            && last.get_low() < core.dd.min(entry.get_low())
+        entry.get_high() > zs.zg
+            && entry.get_low() <= zs.zg
+            && last.get_high() >= zs.zd
+            && last.get_low() < zs.dd.min(entry.get_low())
     } else {
-        entry.get_low() < core.zd
-            && entry.get_high() >= core.zd
-            && last.get_low() <= core.zg
-            && last.get_high() > core.gg.max(entry.get_high())
+        entry.get_low() < zs.zd
+            && entry.get_high() >= zs.zd
+            && last.get_low() <= zs.zg
+            && last.get_high() > zs.gg.max(entry.get_high())
     };
     let price = last.get_power_price();
     let entry_price = entry.get_power_price();
