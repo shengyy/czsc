@@ -97,7 +97,7 @@ Python 返回独立的嵌套 `dict` / `list` 快照，字段与 Rust serde 相�
 
 ```python
 key = "30分钟_D1_三买辅助V230228"
-value = cs.s.get(key)                     # 原 Signal key/value 不变
+value = cs.s.get(key)                     # key 与四段 value 形状不变，命中语义见下
 reference = cs.signal_references.get(key) # 无当前命中引用时为 None
 ```
 
@@ -106,11 +106,13 @@ reference = cs.signal_references.get(key) # 无当前命中引用时为 None
 
 | 字段 | 类型 | 定义 |
 |------|------|------|
-| `kind` | string | `key_up_bi_overlap`：三买实际检查的关键上升笔重叠区；`b1_b3_overlap`：五笔窗口第 1、3 笔重叠区（三买和三卖共用） |
-| `window` | `{di: int, n: int}` | 命中窗口止于 `bi_list` 倒数第 `di` 笔，共 `n` 笔；三买为实际命中的 6/8/10/12/14 笔，third_bs 为 5 笔 |
-| `overlap_bis` | list[ReferenceBi] | 本次重叠计算实际使用的笔，按窗口顺序排列 |
-| `last_bi` | ReferenceBi | 本次判定用的窗口末笔（third_bs 的 b5） |
-| `zd`, `zg` | float | 原判定的重叠下沿、上沿；third_bs 允许两者相等 |
+| `kind` | string | `canonical_zs`：最新有效已完成笔中枢。旧 `key_up_bi_overlap` / `b1_b3_overlap` 仍可解码，但新版不再产生 |
+| `window` | `{di: int, n: int}` | 从该中枢起点到 `bi_list` 倒数第 `di` 笔，共 `n` 笔；两信号均为真实变长窗口 |
+| `overlap_bis` | list[ReferenceBi] | 决定中枢边界的初始三笔，位置为 1/2/3 |
+| `last_bi` | ReferenceBi | 本次判定用的首次回抽笔 |
+| `zd`, `zg` | float | 所选标准中枢下沿、上沿，允许相等；回抽须严格在边界外 |
+
+`1.0.1+ashare.20261028` 更新核心层唯一的中枢划分及 BS1/BS2/BS3 语义，一买/一卖仍包含可验证的单中枢盘整背驰代理。公开 `ZS` 的边界、成员及依赖它的结构止损参考会变化；进入上下文、核心三笔与确认回退规则见 [core 合同](../crates/czsc-core/README.md)，信号判定见 [signals 合同](../crates/czsc-signals/README.md)。跨版本升级须从 K 线重建，不能把 Rust 热快照里的旧标签或引用缓存当作新版结果。
 
 每个 `ReferenceBi` 只有 `position: int`（窗口内从 1 开始）、
 `direction: "Up" | "Down"`（Rust Direction 的序列化值）、
@@ -120,9 +122,9 @@ reference = cs.signal_references.get(key) # 无当前命中引用时为 None
 Python 原 BI getter 的无时区时间在这里按原生存储时间序列化，不添加市场收线时间转换。
 笔端点不是信号确认时间，日线的归一化时间也不是实际确认时刻。
 
-`latest_finished_zs`（消费方结构字段）表示已完成笔序列的最新中枢；
-`signal_references[key]` 表示该信号本轮判定实际使用的笔和重叠区。
-这两个 overlap 类型都不是 canonical `ZS`，也不定义统一失效价。
+`latest_finished_zs`（消费方结构字段）应反向选择已完成笔序列的最新有效且至少三笔的中枢；
+`signal_references[key]` 表示该信号本轮判定实际使用的 canonical 中枢边界。
+历史旧 kind 仍表示旧的局部 overlap，不能重解释为新版 canonical `ZS`。
 引用随当前计算更新，不固定在 `since` 时刻；事实对象不包含解释段或交易结论。
 
 命中变“其他”或结构不足后，对应引用消失。未变化频率复用同一次计算的信号和引用；
@@ -131,7 +133,7 @@ Python 原 BI getter 的无时区时间在这里按原生存储时间序列化�
 Rust 配置按内容比较，配置改变或显式计划重装会使信号结果缓存和引用一起失效。
 重新启用曾停止维护的频率时，从 BG 当前保留的 bars 重建该频率。
 
-Rust clone / serde 保留热状态；旧 TaCache JSON 和 MessagePack 序列缺少新增末尾字段时默认为空。
+同版本 Rust clone / serde 保留热状态；旧 TaCache JSON 和 MessagePack 序列缺少新增末尾字段时默认为空。
 旧快照没有引用时，等待下一次实际计算补齐，不为填充元数据额外重算。
 Rust 快照在末尾保存结果所属的配置；相同配置恢复时仅重建函数指针，保留热信号和引用。
 不含配置记录的旧快照沿用原恢复合同：首次传入原配置；此后按内容检测变化。

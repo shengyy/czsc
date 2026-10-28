@@ -11,17 +11,19 @@
 
 ### Fixed
 
+- Canonical BI centres now separate incoming context from the three-BI core. An outside retest can reassign two trailing BIs to a confirmed new core while preserving the old initial three BIs. `CZSC.zs_list`, BS1/BS2/BS3 and signal references share this one core implementation; signals no longer construct private centre boundaries. BS1 permits a single centre with an observable same-direction external entry, rather than every internal centre swing, BS2 requires the immediately following strict pullback, and BS3 uses the latest valid finished centre with an unbroken raw-price retest path.
 - `print_df_sample` now declares its `tabulate` runtime dependency, including in built wheels. Environment defaults, nullable Feishu sheet selection and research/replay result classes have accurate type annotations without changing runtime behavior.
 - `resample_to_daily` promotes both datetime join keys to a common precision, supporting ns/us/ms/s inputs on pandas 3 without rounding dates or changing the snapshot rows carried forward. The output remains datetime without a fixed unit guarantee.
 
 ### Breaking Changes
 
-- This public fork supports Python 3.14 only and requires pandas >= 3.0.5. Older Python releases and the unreachable talib-rs test extra are no longer supported. The native abi3 floor is unchanged; wheel metadata enforces the supported runtime.
+- `1.0.1+ashare.20261028` changes the **meaning**, but not names, arguments, Signal keys or four-part value shape, of `cxt_first_buy/sell_V221126`, `cxt_second_bs_V230320`, `cxt_third_buy_V230228` and `cxt_third_bs_V230318`. Public ZS membership, boundaries and structure-based stops also change. Re-run backtests and rebuild streaming state from bars on upgrade. The retained first BI is initialization context; a truncated history is not guaranteed to reproduce a longer history’s first core. Reference fields are unchanged; `kind=canonical_zs` now identifies the initial three centre BIs. Old reference kinds remain deserializable, but old cached signal results must not be reused as new results. Internal Rust `utils::cxt::check_first_buy/sell` heuristics have been replaced by the shared centre-based predicates.
+- This public fork requires Python >= 3.14 and pandas >= 3.0.5. CPython 3.15 source builds and wheel installation are supported with interpreter-specific dependency constraints; the 3.14 lock branch remains unchanged. Older Python releases and the unreachable talib-rs test extra are no longer supported. The native abi3 floor is unchanged; future Python and free-threaded builds have not been validated.
 
 ### Development
 
 - Linux wheel builds check the selected interpreter inside the container. The musllinux cross image explicitly installs `.python-version` with uv before building, instead of assuming the host setup or image provides it.
-- `.python-version` selects the interpreter for development, CI, type checking, stub generation and packaging. `uv.lock` selects exact dependencies (currently pandas 3.0.5); workflows and environment checks consume these files instead of maintaining version matrices or falling back to another interpreter.
+- `.python-version` selects the default 3.14 interpreter for development, CI, type checking, stub generation and packaging. Explicit builds use `PYO3_PYTHON` within the public `requires-python` range. `uv.lock` selects exact dependencies per interpreter branch; workflows and environment checks consume these declarations without falling back to another interpreter.
 - Existing audit tools now resolve in a locked dependency group. Wheel smoke installs locked dependencies and imports the built wheel outside the checkout.
 
 ## [1.0.1+ashare.20261013] — 2026-10-13

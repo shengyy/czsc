@@ -1,4 +1,4 @@
-//! Operands captured in the original signal hit, not a reconstructed canonical ZS.
+//! Operands captured in the signal hit, including canonical ZS boundaries.
 
 use chrono::{DateTime, Utc};
 use czsc_core::{analyze::CZSC, objects::bi::BI, objects::direction::Direction};
@@ -8,8 +8,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReferenceKind {
+    // Retained for decoding snapshots written before the canonical correction.
     KeyUpBiOverlap,
     B1B3Overlap,
+    CanonicalZs,
 }
 
 /// A participating BI. `position` is one-based within the hit window.

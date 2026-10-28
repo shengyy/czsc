@@ -117,14 +117,21 @@ fn create_fake_bis_rejects_non_alternating_fxs() {
 }
 
 #[test]
-fn get_zs_seq_groups_overlapping_bis_and_splits_separated_bis() {
-    let bis = vec![bi(0, 12.0, 9.0), bi(20, 9.0, 11.0), bi(40, 11.0, 9.5)];
+fn get_zs_seq_reserves_entry_and_exposes_only_core_members() {
+    let bis = vec![
+        bi(0, 15.0, 9.0),
+        bi(10, 9.0, 12.0),
+        bi(20, 12.0, 10.0),
+        bi(30, 10.0, 11.0),
+    ];
+    let partial = get_zs_seq(&bis[..3]);
+    assert_eq!(partial.len(), 1);
+    assert_eq!(partial[0].bis.len(), 2);
     let grouped = get_zs_seq(&bis);
     assert_eq!(grouped.len(), 1);
     assert_eq!(grouped[0].bis.len(), 3);
-
-    let separated = get_zs_seq(&[bis[0].clone(), bi(20, 5.0, 7.0)]);
-    assert_eq!(separated.len(), 2);
+    assert_eq!(grouped[0].sdt, bis[1].start_dt());
+    assert_eq!((grouped[0].zd, grouped[0].zg), (10.0, 11.0));
 }
 
 #[test]

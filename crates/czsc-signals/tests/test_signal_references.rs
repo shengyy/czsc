@@ -1,155 +1,46 @@
-use chrono::{TimeZone, Utc};
-use czsc_core::{
-    analyze::CZSC,
-    objects::{
-        bar::{NewBarBuilder, RawBar, RawBarBuilder},
-        bi::BIBuilder,
-        direction::Direction,
-        freq::Freq,
-        fx::FXBuilder,
-        mark::Mark,
-    },
-};
-use czsc_signals::{reference::ReferenceKind, registry::SIGNAL_REGISTRY, types::TaCache};
-use serde_json::json;
-use std::collections::HashMap;
+#[path = "support/bs_fixture.rs"]
+mod fixture;
+use czsc_core::analyze::utils::get_zs_seq;
+use czsc_signals::{reference::ReferenceKind, types::TaCache};
+use fixture::{evaluate, raw, structure};
 
-fn raw(id: i32, close: f64) -> RawBar {
-    RawBarBuilder::default()
-        .symbol("TEST")
-        .id(id)
-        .freq(Freq::F30)
-        .dt(Utc
-            .timestamp_opt(1_700_000_000 + i64::from(id) * 1800, 0)
-            .unwrap())
-        .open(close)
-        .close(close)
-        .high(close)
-        .low(close)
-        .vol(1.0)
-        .amount(close)
-        .build()
-        .unwrap()
-}
-
-// Tiny BI geometry fixtures, with native RawBar snapshots for the real MA path.
-fn structure(ranges: &[(f64, f64)], first: Direction, rising_ma: bool) -> CZSC {
-    let bars: Vec<_> = (0..=ranges.len())
-        .map(|i| {
-            raw(
-                i as i32,
-                if rising_ma {
-                    10.0 + i as f64
-                } else {
-                    30.0 - i as f64
-                },
-            )
-        })
-        .collect();
-    let mut c = CZSC::new(vec![bars[0].clone()], 50, 6);
-    c.bars_raw = bars.clone();
-    c.bars_ubi.clear();
-    c.bi_list = ranges
-        .iter()
-        .enumerate()
-        .map(|(i, &(low, high))| {
-            let up = (i % 2 == 0) == (first == Direction::Up);
-            let fx = |index: usize, level: f64, mark: Mark| {
-                let rb = &bars[index];
-                let nb = NewBarBuilder::default()
-                    .symbol("TEST")
-                    .id(rb.id)
-                    .freq(Freq::F30)
-                    .dt(rb.dt)
-                    .open(rb.open)
-                    .close(rb.close)
-                    .high(rb.high)
-                    .low(rb.low)
-                    .vol(1.0)
-                    .amount(rb.amount)
-                    .elements(vec![rb.clone()])
-                    .build()
-                    .unwrap();
-                FXBuilder::default()
-                    .symbol("TEST")
-                    .dt(rb.dt)
-                    .mark(mark)
-                    .fx(level)
-                    .high(level)
-                    .low(level)
-                    .elements(vec![nb])
-                    .build()
-                    .unwrap()
-            };
-            BIBuilder::default()
-                .symbol("TEST")
-                .direction(if up { Direction::Up } else { Direction::Down })
-                .fx_a(fx(
-                    i,
-                    if up { low } else { high },
-                    if up { Mark::D } else { Mark::G },
-                ))
-                .fx_b(fx(
-                    i + 1,
-                    if up { high } else { low },
-                    if up { Mark::G } else { Mark::D },
-                ))
-                .fxs(vec![])
-                .bars(vec![])
-                .build()
-                .unwrap()
-        })
-        .collect();
-    c
-}
-
-fn evaluate(c: &CZSC, name: &str, di: usize, cache: &mut TaCache) -> (String, String) {
-    let params: HashMap<_, _> = [
-        ("di".to_owned(), json!(di)),
-        ("timeperiod".to_owned(), json!(1)),
-    ]
-    .into();
-    let s = (SIGNAL_REGISTRY[name].func)(c, &params, cache);
-    (s[0].key(), s[0].value())
-}
+const THIRD: &[f64] = &[
+    10., 14., 11., 15., 12., 14., 11., 15., 12., 14., 11., 18., 16.,
+];
 
 #[test]
-fn third_buy_captures_selected_window_and_updates_same_value() {
-    // Every later up BI makes a new high. The first 12-BI window wins.
-    let mut ranges = vec![(10.0, 14.0); 12];
-    for i in (0..10).step_by(2) {
-        ranges[i] = (10.0 + i as f64 / 10.0, 14.0 + i as f64 / 10.0);
-    }
-    ranges[11] = (15.0, 16.0);
-    let mut c = structure(&ranges, Direction::Up, true);
+fn third_buy_captures_latest_centre_and_updates_same_value() {
+    let mut c = structure(THIRD);
     let mut cache = TaCache::default();
     let (key, value) = evaluate(&c, "cxt_third_buy_V230228", 1, &mut cache);
-    assert_eq!(value, "三买_12笔_任意_0");
+    assert_eq!(value, "三买_11笔_任意_0");
     let r = cache.signal_references[&key].clone();
-    assert_eq!(r.kind, ReferenceKind::KeyUpBiOverlap);
-    assert_eq!((r.zd, r.zg), (10.8, 14.0));
+    assert_eq!(r.kind, ReferenceKind::CanonicalZs);
+    assert_eq!((r.zd, r.zg), (12., 14.));
     assert_eq!(
         r.overlap_bis.iter().map(|b| b.position).collect::<Vec<_>>(),
-        [1, 3, 5, 7, 9]
+        [1, 2, 3]
     );
     assert!(!r.last_bi.finished);
     assert!(r.overlap_bis.iter().all(|b| b.finished));
-    assert_eq!(r.window.n, 12);
+    // Change both ends of the shared peak, preserving contiguous BIs.
     c.bi_list[0].fx_b.high = 14.1;
+    c.bi_list[1].fx_a.high = 14.1;
     assert_eq!(
         evaluate(&c, "cxt_third_buy_V230228", 1, &mut cache).1,
         value
     );
     assert_eq!(cache.signal_references[&key].zg, 14.1);
     assert_ne!(cache.signal_references[&key], r);
-    c.bi_list[11].fx_b.low = 13.0;
+    // Last BI still passes, but a subsequent raw bar touched the ZG boundary.
+    c.bars_raw.push(raw(13, 14.1));
     assert!(
         evaluate(&c, "cxt_third_buy_V230228", 1, &mut cache)
             .1
             .starts_with("其他")
     );
     assert!(cache.signal_references.is_empty());
-    c.bi_list[11].fx_b.low = 15.0;
+    c.bars_raw.pop();
     evaluate(&c, "cxt_third_buy_V230228", 1, &mut cache);
     assert!(!cache.signal_references.is_empty());
     c.bi_list.truncate(4);
@@ -158,18 +49,13 @@ fn third_buy_captures_selected_window_and_updates_same_value() {
 }
 
 #[test]
-fn third_bs_point_overlap_is_symmetric_and_finished_is_window_specific() {
+fn third_bs_is_symmetric_and_incomplete_tail_does_not_hide_the_centre() {
     for buy in [true, false] {
-        // The chosen 5-BI window starts at index 2: b1 and b3 touch at 12.
-        let mut ranges = vec![(10.0, 14.0); 7];
-        ranges[2] = (10.0, 12.0);
-        ranges[4] = (12.0, 14.0);
-        ranges[6] = if buy { (15.0, 16.0) } else { (8.0, 9.0) };
-        let mut c = structure(
-            &ranges,
-            if buy { Direction::Down } else { Direction::Up },
-            buy,
-        );
+        let prices: Vec<_> = THIRD
+            .iter()
+            .map(|&p| if buy { p } else { 30. - p })
+            .collect();
+        let mut c = structure(&prices);
         let mut cache = TaCache::default();
         let (key, value) = evaluate(&c, "cxt_third_bs_V230318", 1, &mut cache);
         assert_eq!(
@@ -180,36 +66,137 @@ fn third_bs_point_overlap_is_symmetric_and_finished_is_window_specific() {
                 "三卖_任意_任意_0"
             }
         );
-        let r = cache.signal_references[&key].clone();
-        assert_eq!(r.kind, ReferenceKind::B1B3Overlap);
-        assert_eq!((r.zd, r.zg), (12.0, 12.0));
         assert_eq!(
-            r.overlap_bis.iter().map(|b| b.position).collect::<Vec<_>>(),
-            [1, 3]
+            cache.signal_references[&key].kind,
+            ReferenceKind::CanonicalZs
         );
-        assert!(!r.last_bi.finished);
-        let last = c.bi_list.last().unwrap().clone();
-        c.bi_list.push(last);
-        let (di_key, di_value) = evaluate(&c, "cxt_third_bs_V230318", 2, &mut cache);
-        assert_eq!(di_value, value);
-        assert!(cache.signal_references[&di_key].last_bi.finished);
-        assert_eq!(cache.signal_references[&di_key].window.di, 2);
-        // Same label, different overlap operands.
-        c.bi_list[2].fx_a.high = 12.5;
-        c.bi_list[2].fx_b.high = 12.5;
-        assert_eq!(evaluate(&c, "cxt_third_bs_V230318", 2, &mut cache).1, value);
-        assert_eq!(cache.signal_references[&di_key].zg, 12.5);
-        // Non-overlap, then insufficient structure, both remove only their key.
-        c.bi_list[4].fx_a.low = 13.0;
-        c.bi_list[4].fx_b.low = 13.0;
+        let original = cache.signal_references[&key].clone();
+        // Completing the pullback adds a singleton to zs_list; the latest
+        // valid >=3-BI centre must still be the preceding one.
+        c.bars_ubi = c.bi_list[0].bars.clone();
+        let zs = get_zs_seq(c.finished_bis_slice());
+        assert_eq!(zs.last().unwrap().bis.len(), 1);
+        assert_eq!(evaluate(&c, "cxt_third_bs_V230318", 1, &mut cache).1, value);
+        assert!(cache.signal_references[&key].last_bi.finished);
+        assert_eq!(cache.signal_references[&key].zg, original.zg);
+        assert_eq!(cache.signal_references[&key].zd, original.zd);
+        // A historical offset is not contaminated by later centres or prices.
+        let mut longer = prices.clone();
+        longer.extend(if buy {
+            [19., 17., 20., 18.]
+        } else {
+            [11., 13., 10., 12.]
+        });
+        let historical = structure(&longer);
+        let (historical_key, historical_value) =
+            evaluate(&historical, "cxt_third_bs_V230318", 5, &mut cache);
+        assert_eq!(historical_value, value);
+        assert_eq!(cache.signal_references[&historical_key].zg, original.zg);
+        assert_eq!(cache.signal_references[&historical_key].zd, original.zd);
+        assert!(cache.signal_references[&historical_key].last_bi.finished);
+    }
+}
+
+#[test]
+fn old_overlap_inside_new_centre_and_second_retest_are_rejected() {
+    // The first outside retest plus two following BIs establishes [17,18].
+    // A later low at 17.5 is inside it although it clears the old [12,14].
+    let mut newer = THIRD.to_vec();
+    newer.extend([19., 17., 20., 17.5]);
+    let c = structure(&newer);
+    let zs = get_zs_seq(c.finished_bis_slice());
+    let latest = zs
+        .iter()
+        .rev()
+        .find(|z| z.bis.len() >= 3 && z.is_valid())
+        .unwrap();
+    assert_eq!((latest.zd, latest.zg), (17., 18.));
+    for name in ["cxt_third_buy_V230228", "cxt_third_bs_V230318"] {
         assert!(
-            evaluate(&c, "cxt_third_bs_V230318", 2, &mut cache)
+            evaluate(&c, name, 1, &mut TaCache::default())
                 .1
                 .starts_with("其他")
         );
-        assert!(!cache.signal_references.contains_key(&di_key));
-        c.bi_list.truncate(2);
-        evaluate(&c, "cxt_third_bs_V230318", 1, &mut cache);
-        assert!(cache.signal_references.is_empty());
+    }
+    let mut prices = THIRD.to_vec();
+    prices.extend([19., 17.]);
+    let c = structure(&prices);
+    for name in ["cxt_third_buy_V230228", "cxt_third_bs_V230318"] {
+        assert!(
+            evaluate(&c, name, 1, &mut TaCache::default())
+                .1
+                .starts_with("其他")
+        );
+    }
+}
+
+#[test]
+fn equality_at_centre_boundary_is_not_an_outside_retest() {
+    for buy in [true, false] {
+        let mut prices = THIRD.to_vec();
+        *prices.last_mut().unwrap() = 14.;
+        if !buy {
+            prices.iter_mut().for_each(|p| *p = 30. - *p);
+        }
+        let c = structure(&prices);
+        assert!(
+            evaluate(&c, "cxt_third_bs_V230318", 1, &mut TaCache::default())
+                .1
+                .starts_with("其他")
+        );
+    }
+}
+
+#[test]
+fn an_interior_wick_cannot_be_hidden_by_the_bi_endpoint() {
+    use chrono::Duration;
+    let mut c = structure(THIRD);
+    let mut wick = raw(100, 13.9);
+    wick.dt = c.bars_raw[11].dt + Duration::seconds(1);
+    c.bars_raw.insert(12, wick);
+    assert!(c.bi_list.last().unwrap().get_low() > 14.);
+    assert!(
+        evaluate(&c, "cxt_third_buy_V230228", 1, &mut TaCache::default())
+            .1
+            .starts_with("其他")
+    );
+}
+
+#[test]
+fn a_confirmed_rollback_core_replaces_the_old_reference() {
+    for buy in [true, false] {
+        // The final outside retest confirms [11,14]. Until it is finished,
+        // the finished-BI view still contains only the older [15,18] core.
+        let prices: Vec<_> = [20., 14., 19., 15., 18., 10., 16., 11., 14.]
+            .into_iter()
+            .map(|p| if buy { 40. - p } else { p })
+            .collect();
+        let mut c = structure(&prices);
+        let mut cache = TaCache::default();
+        let (key, value) = evaluate(&c, "cxt_third_bs_V230318", 1, &mut cache);
+        assert_eq!(
+            value,
+            if buy {
+                "三买_任意_任意_0"
+            } else {
+                "三卖_任意_任意_0"
+            }
+        );
+        let old = cache.signal_references[&key].clone();
+        assert_eq!((old.zd, old.zg), if buy { (22., 25.) } else { (15., 18.) });
+        c.bars_ubi = c.bi_list[0].bars.clone();
+        let zones = get_zs_seq(c.finished_bis_slice());
+        let latest = zones.last().unwrap();
+        assert_eq!(latest.bis.len(), 3);
+        assert_eq!(
+            (latest.zd, latest.zg),
+            if buy { (26., 29.) } else { (11., 14.) }
+        );
+        assert!(
+            evaluate(&c, "cxt_third_bs_V230318", 1, &mut cache)
+                .1
+                .starts_with("其他")
+        );
+        assert!(!cache.signal_references.contains_key(&key));
     }
 }

@@ -27,25 +27,67 @@ pub struct GapInfo {
     pub delta: f64,
 }
 
-/// 将连续笔划分为中枢序列。
+/// 将连续有效笔划分为成员不重叠的中枢核心及延伸。
+///
+/// 保留历史的首笔仅作进入上下文，核心最早从下一笔开始；这是一项
+/// 显式初始化约定，不代表截断历史的首笔天然具有唯一的走势角色。
+/// 未形成核心时，每次尝试连续三笔；无重叠则按两笔推进进入上下文。
+/// 核心一旦成立，其前三笔边界保持不变，返回该区间的笔继续延伸。
+/// 首次严格不返回的回试若能与前两笔构成新核心，且旧核心初始三笔
+/// 完整保留，就将尾两笔退给新核心；否则该回试开始下一核心，前一
+/// 离开笔是其进入上下文。
+/// 每组的进入笔不计入本组 `ZS.bis`，但可同时是前组的离开成员。
+/// 各组可能不连续；尾组可不足三笔。
+/// 这里不递归识别更高级别的中枢扩张。
 pub fn get_zs_seq(bis: &[BI]) -> Vec<ZS> {
     let mut zs_list = Vec::new();
-    for bi in bis.iter().cloned() {
-        let Some(last_zs) = zs_list.pop() else {
-            zs_list.push(ZS::new(vec![bi]));
+    let mut pending_start = 1;
+    let mut active: Option<ZS> = None;
+    for (index, bi) in bis.iter().enumerate().skip(1) {
+        let Some(last_zs) = active.take() else {
+            if index + 1 - pending_start < 3 {
+                continue;
+            }
+            let candidate = ZS::new(bis[pending_start..=index].to_vec());
+            if candidate.is_valid() {
+                active = Some(candidate);
+            } else {
+                pending_start += 2;
+            }
             continue;
         };
 
         if (bi.direction == Direction::Up && bi.get_high() < last_zs.zd)
             || (bi.direction == Direction::Down && bi.get_low() > last_zs.zg)
         {
+            // Reassign only the last two members after confirmation by this
+            // outside retest. Never steal one of the old core's initial BIs.
+            if last_zs.bis.len() >= 5 {
+                let candidate = ZS::new(bis[index - 2..=index].to_vec());
+                let outside = if bi.direction == Direction::Up {
+                    candidate.zg < last_zs.zd
+                } else {
+                    candidate.zd > last_zs.zg
+                };
+                if candidate.is_valid() && outside {
+                    let keep = last_zs.bis.len() - 2;
+                    zs_list.push(ZS::new(last_zs.bis[..keep].to_vec()));
+                    active = Some(candidate);
+                    continue;
+                }
+            }
             zs_list.push(last_zs);
-            zs_list.push(ZS::new(vec![bi]));
+            pending_start = index;
         } else {
             let mut new_bis = last_zs.bis;
-            new_bis.push(bi);
-            zs_list.push(ZS::new(new_bis));
+            new_bis.push(bi.clone());
+            active = Some(ZS::new(new_bis));
         }
+    }
+    if let Some(zs) = active {
+        zs_list.push(zs);
+    } else if pending_start < bis.len() {
+        zs_list.push(ZS::new(bis[pending_start..].to_vec()));
     }
     zs_list
 }
