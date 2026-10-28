@@ -187,7 +187,7 @@ czsc_obj = CZSC(bars)
 - 构建工具在 `[dependency-groups].build`，开发工具在 `.dev`，CI 审计工具在 `.audit`，均由 `uv.lock` 精确锁定；默认启用 build + dev，运行时依赖导出使用 `--no-default-groups`
 - 可选交互工具在 `[project.optional-dependencies.dev]` 中
 - 测试依赖在 `[project.optional-dependencies.test]` 中
-- `.python-version` 是开发、CI、类型检查和构建解释器的选择源；只维护 Python 3.14 路径
+- `.python-version` 选择默认开发、CI 与类型检查解释器（3.14）；显式构建/安装可选择公共 `requires-python` 下界内的新版本。3.15 使用声明中的条件依赖，不因此强制升级3.14分支的依赖
 - `requires-python` 限定公共安装范围，运行时 pandas 最低要求与开发精确锁定分别由 `pyproject.toml` / `uv.lock` 承担；工作流不得 `uv add` 临时改声明
 - 使用 UV 进行依赖管理和虚拟环境控制
 - 项目使用 UV 管理 Python 依赖与虚拟环境（详见根目录 README "开发环境" 章节）
@@ -226,7 +226,7 @@ czsc_obj = CZSC(bars)
 - **API 暴露**：所有面向用户的 API 都通过 `czsc.xxx` 顶层命名空间暴露，禁止用户感知 `czsc._native`
 - **Python/Rust 分工**：见本文件顶部「🏛️ 开发宪法 · 第一条」。该条款是硬约束，与此冲突的任何"局部例外"都不成立。
 - **类型 stub**：`czsc/py.typed` 启用 inline 类型注解；扩展模块 stub 已生成于 `czsc/_native/__init__.pyi`，由 `pyo3-stub-gen` 自动维护
-- **构建环境约束**：PyO3 0.28 / pyo3-stub-gen 0.22；`crates/czsc-python/build.rs` 校验显式 `PYO3_PYTHON` 与 `.python-version` 一致，maturin 传入所选解释器，直接 cargo 调用必须显式设置。`abi3-py310` 仅是 ABI 下界，不代表旧 Python 支持承诺。
+- **构建环境约束**：PyO3 0.28 / pyo3-stub-gen 0.22；`crates/czsc-python/build.rs` 按 `pyproject.toml` 校验显式 `PYO3_PYTHON` 满足公共 Python 下界，maturin 传入所选解释器，直接 cargo 调用必须显式设置。`.python-version` 仍选择默认开发版本。`abi3-py310` 仅是 ABI 下界，不代表旧 Python 支持承诺。
 - **版本号锁死**（PR-5）：crates.io 与 PyPI 必须使用同一版本号。**唯一版本源**是 `Cargo.toml [workspace.package].version`；`pyproject.toml` 用 `dynamic = ["version"]`，由 maturin 在打 wheel 时从 Cargo workspace 注入。`crates/czsc-python/build.rs` 会在编译期校验 pyproject.toml 仍然走 dynamic 路径，禁止硬编码 `version = "..."`
 - **发版流程**：bump `Cargo.toml [workspace.package].version` 后，同步 publish 到 crates.io（`cargo publish`）与 PyPI（`maturin publish`）；CHANGELOG 必须列出本次 release 的 breaking changes
 - **rs-czsc 关系**：czsc 一次性 fork rs-czsc 的 Rust 实现进本仓库，**不再做季度同步**；`tests/parity/` 目录已删除，不再保留 rs-czsc parity 比对测试

@@ -1,7 +1,9 @@
 """Check the selected interpreter and locked pandas before building or testing."""
 
 import argparse
+import re
 import sys
+import tomllib
 from importlib.metadata import version
 from pathlib import Path
 
@@ -11,20 +13,29 @@ def main():
     parser.add_argument("--interpreter-only", action="store_true", help="Check before dependencies are installed")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    expected_python = (root / ".python-version").read_text().strip()
+    required = tomllib.loads((root / "pyproject.toml").read_text())["project"]["requires-python"]
+    minimum = re.fullmatch(r">=(\d+)\.(\d+)", required)
+    if minimum is None:
+        raise SystemExit("requires-python must declare a >=major.minor lower bound")
     actual = f"{sys.version_info.major}.{sys.version_info.minor}"
-    if actual != expected_python:
-        raise SystemExit(f"Expected Python {expected_python} from .python-version, got {actual}: {sys.executable}")
+    if sys.version_info[:2] < tuple(map(int, minimum.groups())):
+        raise SystemExit(f"Python {actual} does not satisfy {required} from pyproject.toml: {sys.executable}")
     if args.interpreter_only:
         print(f"Python {actual}: {sys.executable}")
         return
 
-    import tomllib
+    from packaging.markers import Marker
 
     lock = tomllib.loads((root / "uv.lock").read_text())
-    (expected_pandas,) = [p["version"] for p in lock["package"] if p["name"] == "pandas"]
-    if version("pandas") != expected_pandas:
-        raise SystemExit(f"Expected pandas {expected_pandas} from uv.lock, got {version('pandas')}")
+    expected_pandas = {
+        p["version"]
+        for p in lock["package"]
+        if p["name"] == "pandas"
+        and (not p.get("resolution-markers") or any(Marker(m).evaluate() for m in p["resolution-markers"]))
+    }
+    if version("pandas") not in expected_pandas:
+        expected = ", ".join(sorted(expected_pandas)) or "a matching interpreter branch"
+        raise SystemExit(f"Expected pandas {expected} from uv.lock, got {version('pandas')}")
 
     import pandas as pd
 

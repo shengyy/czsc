@@ -2,7 +2,7 @@
 //!
 //! 职责：
 //!
-//! 1. **校验构建解释器**：读取仓库 `.python-version`，要求调用方显式传入
+//! 1. **校验构建解释器**：按 `pyproject.toml` 的公共 Python 下界，要求调用方显式传入
 //!    `PYO3_PYTHON`（maturin 自动传入所选解释器；直接 cargo 调用需自行设置）。
 //!    不从 PATH 猜测或回退。构建解释器与 abi3 最小 ABI 是不同约束。
 //!
@@ -105,35 +105,34 @@ fn check_version_lockstep() {
     }
 }
 
-/// 校验显式选择的构建解释器与 `.python-version` 一致。
+/// 校验显式选择的构建解释器满足公共 Python 下界。
+/// `.python-version` 只选择默认开发解释器，不排斥显式选择的新版本。
 /// `PYO3_CONFIG_FILE` 描述目标 ABI，不能替代或绕过宿主解释器选择。
 fn check_python_version() {
-    let version_file =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.python-version");
-    println!("cargo:rerun-if-changed={}", version_file.display());
-    let expected = std::fs::read_to_string(&version_file)
-        .expect("czsc-python: missing .python-version in the source distribution");
-    let expected = expected.trim();
+    let pyproject = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../pyproject.toml");
+    println!("cargo:rerun-if-changed={}", pyproject.display());
     let interpreter = std::env::var("PYO3_PYTHON").expect(
         "czsc-python: set PYO3_PYTHON to the project interpreter; use \
          PYO3_PYTHON=$(uv run --no-sync python -c 'import sys; print(sys.executable)') cargo ...",
     );
     let output = Command::new(&interpreter)
-        .args([
-            "-c",
-            "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
-        ])
+        .args(["-c", r#"
+import re, sys, tomllib
+from pathlib import Path
+required = tomllib.loads(Path(sys.argv[1]).read_text())["project"]["requires-python"]
+minimum = re.fullmatch(r">=(\d+)\.(\d+)", required)
+if minimum is None:
+    raise SystemExit("czsc-python: requires-python must declare a >=major.minor lower bound")
+actual = sys.version_info[:2]
+if actual < tuple(map(int, minimum.groups())):
+    raise SystemExit(f"Python {actual[0]}.{actual[1]} does not satisfy {required} from pyproject.toml")
+"#])
+        .arg(&pyproject)
         .output()
         .unwrap_or_else(|err| panic!("czsc-python: cannot run PYO3_PYTHON={interpreter}: {err}"));
     assert!(
         output.status.success(),
         "czsc-python: PYO3_PYTHON={interpreter} failed: {}",
         String::from_utf8_lossy(&output.stderr),
-    );
-    let actual = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(
-        actual.trim(),
-        expected,
-        "czsc-python: PYO3_PYTHON={interpreter} must match .python-version",
     );
 }

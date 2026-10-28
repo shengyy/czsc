@@ -3,7 +3,7 @@
 [![Downloads](https://static.pepy.tech/personalized-badge/czsc?period=total&units=international_system&left_color=red&right_color=orange&left_text=Downloads/Total)](https://pepy.tech/project/czsc)
 [![Downloads](https://static.pepy.tech/personalized-badge/czsc?period=month&units=international_system&left_color=red&right_color=orange&left_text=Downloads/Month)](https://pepy.tech/project/czsc)
 [![Downloads](https://static.pepy.tech/personalized-badge/czsc?period=week&units=international_system&left_color=red&right_color=orange&left_text=Downloads/Week)](https://pepy.tech/project/czsc)
-[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue.svg)](https://www.python.org/downloads/)
 [![PyPI](https://img.shields.io/pypi/v/czsc.svg)](https://pypi.org/project/czsc/)
 
 **[项目文档](https://s0cqcxuy3p.feishu.cn/wiki/wikcn3gB1MKl3ClpLnboHM1QgKf)** |
@@ -73,9 +73,11 @@ czsc (Python 包)
 
 ## 安装使用
 
-本公开 fork 维护 Python 3.14 一条运行路径，运行时要求 pandas ≥ 3.0.5。
-`.python-version` 选择开发与构建解释器；`pyproject.toml` 的 `requires-python`
-约束安装范围；`uv.lock` 固定开发、CI 与打包验证的依赖版本。
+本公开 fork 的 Python 下界为 3.14，默认开发环境仍为 3.14，也可显式选择 3.15。
+已验证的是 CPython 3.14 与 3.15 的常规构建；这不代表尚未发布版本或 free-threaded 构建已通过验证。
+`.python-version` 选择默认开发解释器；`pyproject.toml` 的 `requires-python`
+约束公开安装范围，`uv.lock` 固定各解释器分支的依赖。Python 3.15 的 pandas、NumPy、
+PyArrow、SciPy 和 statsmodels 使用声明中的条件下界，以安装对应版本的二进制包。
 
 从本 fork 源码安装（需要 Rust 工具链，准备步骤见下方“开发环境搭建”）：
 
@@ -95,7 +97,9 @@ PYO3_PYTHON=$(uv run --no-sync python -c 'import sys; print(sys.executable)') \
   cargo run --bin stub_gen -p czsc-python --no-default-features --features stub-gen
 ```
 
-`build.rs` 校验该解释器与 `.python-version` 一致，不从 PATH 选择替代解释器。
+`build.rs` 校验显式解释器满足 `requires-python`，不从 PATH 选择替代解释器。
+例如 `uv sync --locked --python 3.15 --extra test` 可验证显式选定的运行环境；
+默认开发版本和公共兼容范围是不同约束。未发布的未来 Python 版本尚未验证。
 PyO3 0.28 的 `abi3-py310` 保留为底层 ABI 下界；wheel 的公开 Python 支持范围由
 `Requires-Python` 元数据约束，不能从 `cp310-abi3` 文件名推断旧 Python 仍受支持。
 

@@ -60,12 +60,11 @@ pub fn first_point(c: &CZSC, end: usize, direction: Direction) -> Option<usize> 
     // Exclude the outgoing leg so it cannot change its own trend/background.
     let centres = valid_centres(&c.bi_list[..end - 1]);
     let (start, zs) = centres.last()?;
-    let entry_index = if *start > 0 {
-        start - 1
-    } else {
-        // The first retained BI can be an observable entry, but must not be
-        // its own only evidence for a centre: require three subsequent BIs
-        // with a common overlap intersecting the canonical interval.
+    let entry_index = if zs.bis[0].direction == direction {
+        // get_zs_seq starts a new centre with the first outside retest of the
+        // previous centre. That BI can itself be the incoming leg, regardless
+        // of how many older centres precede it. It must not be its own only
+        // evidence: require three subsequent BIs with an independent overlap.
         if zs.bis.len() < 4 {
             return None;
         }
@@ -78,7 +77,9 @@ pub fn first_point(c: &CZSC, end: usize, direction: Direction) -> Option<usize> 
         if low > high || high < zs.zd || low > zs.zg {
             return None;
         }
-        0
+        *start
+    } else {
+        start.checked_sub(1)?
     };
     let entry = &c.bi_list[entry_index];
     if *start + zs.bis.len() != end - 1 || entry.direction != direction {

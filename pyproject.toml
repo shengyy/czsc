@@ -35,13 +35,17 @@ keywords = ["缠论", "技术分析", "A股", "期货", "缠中说禅", "量化"
 classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
 ]
-requires-python = ">=3.14,<3.15"
+requires-python = ">=3.14"
 dependencies = [
     # 核心数据处理
     "pandas>=3.0.5",
+    "pandas>=3.0.6; python_version >= '3.15'",
     "numpy",
+    "numpy>=2.5.2; python_version >= '3.15'",
     "pyarrow",
+    "pyarrow>=26.0.0; python_version >= '3.15'",
     "openpyxl",
     "polars>=0.20.0",
     # 网络请求（czsc.fsa 飞书 API 封装使用）
@@ -49,7 +53,9 @@ dependencies = [
     "requests_toolbelt",
     # 数学计算和统计
     "scipy",
+    "scipy>=1.18.1; python_version >= '3.15'",
     "statsmodels",
+    "statsmodels>=0.15.0; python_version >= '3.15'",
     # scikit-learn 已于 2026-05-17 PR-A 删除：唯一调用点 `czsc.utils.analysis.corr.nmi_matrix` 同步下线，
     # 项目不再依赖 sklearn；如需归一化互信息矩阵，调用方自行 `pip install scikit-learn` 一行实现即可。
     # 技术分析
