@@ -15,10 +15,15 @@ use std::collections::{HashMap, HashSet};
 
 fn bars() -> Vec<RawBar> {
     let start = Utc.with_ymd_and_hms(2026, 1, 5, 0, 0, 0).unwrap();
+    let mut seed = 42_u64;
+    let mut price = 100.0_f64;
     (0..2500)
         .map(|i| {
-            let x = i as f64;
-            let close = 100.0 + x * 0.02 + 8.0 * (x * 0.035).sin() + 3.0 * (x * 0.17).sin();
+            // A deterministic path with varied centre shapes exercises both
+            // canonical BS3+MA and plain third-buy streaming references.
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            price += ((seed >> 32) % 2001) as f64 / 1000.0 - 0.98;
+            let close = price.max(1.0);
             let slot = i % 8;
             let minute = if slot < 4 {
                 600 + slot * 30
@@ -162,8 +167,8 @@ fn stream_references_clone_serde_and_tail_revisions_follow_current_signals() {
         previous = current;
         previous_values = c.signal_map.clone();
     }
-    assert_eq!(seen.len(), 4);
-    assert_eq!(changed.len(), 2); // di=2 windows stay fixed in this smooth fixture.
+    assert_eq!(seen.len(), 4, "seen={seen:?}");
+    assert_eq!(changed.len(), 2); // di=2 targets stay fixed while their value is unchanged.
     assert_eq!(cleared.len(), 4);
 
     let (c, i) = hit(&input, &cfg);
@@ -284,6 +289,15 @@ fn aggregated_same_time_tail_refreshes_reference_operands() {
     let mut input = bars();
     let start = input[0].dt - Duration::minutes(600);
     for (i, bar) in input.iter_mut().enumerate() {
+        // Smooth waves give enough intra-bucket operand changes for both
+        // families; the other streaming test uses varied centre geometry.
+        let x = i as f64;
+        let close = 100.0 + x * 0.02 + 8.0 * (x * 0.035).sin() + 3.0 * (x * 0.17).sin();
+        bar.open = close - 0.1;
+        bar.close = close;
+        bar.high = close + 0.3;
+        bar.low = close - 0.3;
+        bar.amount = close * 100.0;
         let slot = i % 48;
         let minute = if slot < 24 {
             575 + slot * 5
@@ -313,7 +327,7 @@ fn aggregated_same_time_tail_refreshes_reference_operands() {
                 if previous.get(&key).is_some_and(|old| old != &current[&key])
                     && previous_values.get(&key) == c.signal_map.get(&key)
                 {
-                    changed.insert(r.kind);
+                    changed.insert(key.contains("三买辅助"));
                     let index = structure.bi_list.len() - r.window.di;
                     assert_eq!(r.last_bi.high, structure.bi_list[index].get_high());
                     assert_eq!(r.last_bi.low, structure.bi_list[index].get_low());

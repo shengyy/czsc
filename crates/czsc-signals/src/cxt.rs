@@ -1,12 +1,12 @@
 use crate::reference::{ReferenceKind, SignalReference};
 use crate::types::TaCache;
 use crate::params::ParamView;
+use crate::utils::bs::{first_point, prefix_end, second_point, third_point};
 use crate::utils::cxt::{
-    calc_bi_status_values, check_first_buy, check_first_sell, fx_has_zs, fx_power_str,
-    fx_raw_bars, get_zs_seq, raw_bar_lower, raw_bar_upper, rebuild_ubi, ubi_raw_bars,
-    unique_prices_from_bars,
+    calc_bi_status_values, fx_has_zs, fx_power_str, fx_raw_bars, get_zs_seq, raw_bar_lower,
+    raw_bar_upper, rebuild_ubi, ubi_raw_bars, unique_prices_from_bars,
 };
-use crate::utils::math::{linreg_predict, max_amplitude_pct, mean, overlap};
+use crate::utils::math::{linreg_predict, max_amplitude_pct, overlap};
 use crate::utils::sig::{
     bar_index_map, get_sub_elements, get_usize_param, make_kline_signal_v1, make_kline_signal_v2,
     qcut_last_label,
@@ -820,8 +820,9 @@ pub fn cxt_bi_zdf_v230601(c: &CZSC, params: &ParamView, _cache: &mut TaCache) ->
 ///
 /// 信号逻辑：
 /// 1. 取最近 5 笔，并计算关键分型右侧原始 K 线的均线值；
-/// 2. 若前两次同向回撤/反弹已偏离均线，而第 5 笔重新回到均线同向，判定 `二买/二卖`；
-/// 3. 均线、分型样本或笔数量不足时返回 `其他`。
+/// 2. 末笔须为同一结构一买/一卖之后的首次回抽，严格不破锚点，且完整后续原始价格路径守界；
+/// 3. 保留前两次偏离均线、末笔均线同向的辅助过滤；
+/// 4. 均线、分型样本或笔数量不足时返回 `其他`。
 ///
 /// 信号列表示例：
 /// - `Signal('60分钟_D1#SMA#21_BS2辅助V230320_二买_任意_任意_0')`
@@ -891,12 +892,20 @@ pub fn cxt_second_bs_v230320(c: &CZSC, params: &ParamView, cache: &mut TaCache) 
     };
 
     let lc1 = b1.get_low() < b1_ma_b && b3.get_low() < b3_ma_b;
-    if b5.direction == Direction::Down && lc1 && b5_ma_a < b5_ma_b {
+    if b5.direction == Direction::Down
+        && lc1
+        && b5_ma_a < b5_ma_b
+        && prefix_end(c, di).is_some_and(|end| second_point(c, end, Direction::Down))
+    {
         v1 = "二买";
     }
 
     let sc1 = b1.get_high() > b1_ma_b && b3.get_high() > b3_ma_b;
-    if b5.direction == Direction::Up && sc1 && b5_ma_a > b5_ma_b {
+    if b5.direction == Direction::Up
+        && sc1
+        && b5_ma_a > b5_ma_b
+        && prefix_end(c, di).is_some_and(|end| second_point(c, end, Direction::Up))
+    {
         v1 = "二卖";
     }
     make_kline_signal_v1(&k1, &k2, k3, v1)
@@ -907,8 +916,8 @@ pub fn cxt_second_bs_v230320(c: &CZSC, params: &ParamView, cache: &mut TaCache) 
 /// 参数模板：`"{freq}_D{di}#{ma_type}#{timeperiod}_BS3辅助V230318"`
 ///
 /// 信号逻辑：
-/// 1. 取最近 5 笔构造中枢，并计算第 1、3、5 笔终点分型的均线；
-/// 2. 若第 5 笔离开中枢，且三次均线值同向抬升或下降，则判定 `三买/三卖`；
+/// 1. 选择已完成笔序列最新有效中枢，检查紧邻离开后的首次回抽严格在 ZG/ZD 外；
+/// 2. 回抽及其后的原始价格均须守界，并保留中枢第 1、3 笔与回抽末笔的均线同向过滤；
 /// 3. 中枢无效、均线缺失或笔数不足时返回 `其他`。
 ///
 /// 信号列表示例：
@@ -943,18 +952,14 @@ pub fn cxt_third_bs_v230318(c: &CZSC, params: &ParamView, cache: &mut TaCache) -
     if c.bi_list.len() < di + 6 {
         return make_kline_signal_v1(&k1, &k2, k3, v1);
     }
-    let bis = get_sub_elements(&c.bi_list, di, 5);
-    if bis.len() != 5 {
+    let Some(point) = third_point(c, di) else {
         return make_kline_signal_v1(&k1, &k2, k3, v1);
-    }
+    };
+    let bis = &c.bi_list[point.start..point.end];
     let b1 = &bis[0];
     let b3 = &bis[2];
-    let b5 = &bis[4];
-    let zs_zd = b1.get_low().max(b3.get_low());
-    let zs_zg = b1.get_high().min(b3.get_high());
-    if zs_zd > zs_zg {
-        return make_kline_signal_v1(&k1, &k2, k3, v1);
-    }
+    let b5 = bis.last().unwrap();
+    let (zs_zd, zs_zg) = (point.zd, point.zg);
 
     let Some(ma) = cache.series.get(&cache_key) else {
         return make_kline_signal_v1(&k1, &k2, k3, v1);
@@ -1010,7 +1015,7 @@ pub fn cxt_third_bs_v230318(c: &CZSC, params: &ParamView, cache: &mut TaCache) -
     let signals = make_kline_signal_v1(&k1, &k2, k3, v1);
     if v1 != "其他" {
         cache.signal_references.insert(reference_key, SignalReference::capture(
-            c, di, bis, &[1, 3], ReferenceKind::B1B3Overlap,
+            c, di, bis, &[1, 2, 3], ReferenceKind::CanonicalZs,
             (zs_zd, zs_zg),
         ));
     }
@@ -1540,8 +1545,8 @@ pub fn cxt_bs_v240527(c: &CZSC, _params: &ParamView, _cache: &mut TaCache) -> Ve
 /// 参数模板：`"{freq}_D{di}B_BUY1V221126"`
 ///
 /// 信号逻辑：
-/// 1. 依次尝试最近 `21/19/17/15/13/11/9/7/5` 笔；
-/// 2. 调用统一的 `check_first_buy` 结构判定函数识别一买；
+/// 1. 最新有效笔中枢下创新低，与可观察进入笔直接比较价差及量/时长衰减；
+/// 2. 接受单中枢盘整背驰代理，不强制两个下移中枢；起始入中枢笔之后须另有三笔重叠；
 /// 3. 命中后输出对应笔数，否则返回 `其他`。
 ///
 /// 信号列表示例：
@@ -1550,7 +1555,7 @@ pub fn cxt_bs_v240527(c: &CZSC, _params: &ParamView, _cache: &mut TaCache) -> Ve
 ///
 /// 参数说明：
 /// - `di`：从倒数第 `di` 笔开始取样，默认 `1`；
-/// - 一买结构判定复用 Python 同名逻辑。
+/// - 一买为 BI 级别背驰辅助，不能代替递归走势级别确认。
 /// 对齐说明：与 Python `czsc.signals.cxt_first_buy_V221126` 保持一致。
 #[signal(
     category = "kline",
@@ -1564,11 +1569,8 @@ pub fn cxt_first_buy_v221126(c: &CZSC, params: &ParamView, _cache: &mut TaCache)
     let k1 = c.freq.to_string();
     let k2 = format!("D{}B", di);
     let k3 = "BUY1";
-    for n in [21, 19, 17, 15, 13, 11, 9, 7, 5] {
-        let bis = get_sub_elements(&c.bi_list, di, n);
-        if bis.len() == n && check_first_buy(bis) {
-            return make_kline_signal_v2(&k1, &k2, k3, "一买", &format!("{}笔", n));
-        }
+    if let Some(n) = prefix_end(c, di).and_then(|end| first_point(c, end, Direction::Down)) {
+        return make_kline_signal_v2(&k1, &k2, k3, "一买", &format!("{}笔", n));
     }
     make_kline_signal_v1(&k1, &k2, k3, "其他")
 }
@@ -1578,8 +1580,8 @@ pub fn cxt_first_buy_v221126(c: &CZSC, params: &ParamView, _cache: &mut TaCache)
 /// 参数模板：`"{freq}_D{di}B_SELL1V221126"`
 ///
 /// 信号逻辑：
-/// 1. 依次尝试最近 `21/19/17/15/13/11/9/7/5` 笔；
-/// 2. 调用统一的 `check_first_sell` 结构判定函数识别一卖；
+/// 1. 最新有效笔中枢上创新高，与可观察进入笔直接比较价差及量/时长衰减；
+/// 2. 接受单中枢盘整背驰代理，不强制两个上移中枢；起始入中枢笔之后须另有三笔重叠；
 /// 3. 命中后输出对应笔数，否则返回 `其他`。
 ///
 /// 信号列表示例：
@@ -1588,7 +1590,7 @@ pub fn cxt_first_buy_v221126(c: &CZSC, params: &ParamView, _cache: &mut TaCache)
 ///
 /// 参数说明：
 /// - `di`：从倒数第 `di` 笔开始取样，默认 `1`；
-/// - 一卖结构判定复用 Python 同名逻辑。
+/// - 一卖为 BI 级别背驰辅助，不能代替递归走势级别确认。
 /// 对齐说明：与 Python `czsc.signals.cxt_first_sell_V221126` 保持一致。
 #[signal(
     category = "kline",
@@ -1602,11 +1604,8 @@ pub fn cxt_first_sell_v221126(c: &CZSC, params: &ParamView, _cache: &mut TaCache
     let k1 = c.freq.to_string();
     let k2 = format!("D{}B", di);
     let k3 = "SELL1";
-    for n in [21, 19, 17, 15, 13, 11, 9, 7, 5] {
-        let bis = get_sub_elements(&c.bi_list, di, n);
-        if bis.len() == n && check_first_sell(bis) {
-            return make_kline_signal_v2(&k1, &k2, k3, "一卖", &format!("{}笔", n));
-        }
+    if let Some(n) = prefix_end(c, di).and_then(|end| first_point(c, end, Direction::Up)) {
+        return make_kline_signal_v2(&k1, &k2, k3, "一卖", &format!("{}笔", n));
     }
     make_kline_signal_v1(&k1, &k2, k3, "其他")
 }
@@ -1704,8 +1703,8 @@ pub fn cxt_bi_end_v230222(c: &CZSC, params: &ParamView, _cache: &mut TaCache) ->
 /// 参数模板：`"{freq}_D{di}_三买辅助V230228"`
 ///
 /// 信号逻辑：
-/// 1. 依次尝试最近 `13/11/9/7/5` 笔加末笔，共 `n + 1` 笔；
-/// 2. 从奇数位上升关键笔中提取突破结构，要求末笔低点在关键高点上方并满足价格约束；
+/// 1. 使用已完成笔序列最新有效中枢，尾部不足三笔的对象不替代它；
+/// 2. 向上离开后紧邻向下首次回抽的低点及完整原始价格路径须严格高于 ZG；
 /// 3. 满足条件时输出 `三买_XX笔`，否则返回 `其他`。
 ///
 /// 信号列表示例：
@@ -1734,45 +1733,14 @@ pub fn cxt_third_buy_v230228(c: &CZSC, params: &ParamView, cache: &mut TaCache) 
         return make_kline_signal_v2(&k1, &k2, k3, "其他", "其他");
     }
 
-    for n in [13, 11, 9, 7, 5] {
-        let bis = get_sub_elements(&c.bi_list, di, n + 1);
-        if bis.len() != n + 1 {
-            continue;
-        }
-        if bis.last().unwrap().direction == Direction::Up || bis.first().unwrap().direction == bis.last().unwrap().direction {
-            continue;
-        }
-        let mut key_bis: Vec<&BI> = Vec::new();
-        let mut key_positions = Vec::new();
-        for i in (0..=(bis.len() - 3)).step_by(2) {
-            if i == 0 {
-                key_bis.push(&bis[i]);
-                key_positions.push(i + 1);
-            } else {
-                let b1 = &bis[i - 2];
-                let b3 = &bis[i];
-                if b3.get_high() > b1.get_high() {
-                    key_bis.push(b3);
-                    key_positions.push(i + 1);
-                }
-            }
-        }
-        if key_bis.len() < 2 {
-            continue;
-        }
-        let zg = key_bis.iter().map(|x| x.get_high()).fold(f64::INFINITY, f64::min);
-        let zd = key_bis.iter().map(|x| x.get_low()).fold(f64::NEG_INFINITY, f64::max);
-        let tb_break = bis.last().unwrap().get_low() > zg && zg > zd;
-        let tb_price = bis.last().unwrap().get_low()
-            < bis.iter().map(|x| x.get_low()).fold(f64::INFINITY, f64::min)
-                + 1.618 * mean(&key_bis.iter().map(|x| x.get_power_price()).collect::<Vec<_>>());
-        if tb_break && tb_price {
-            let signals = make_kline_signal_v2(&k1, &k2, k3, "三买", &format!("{}笔", bis.len()));
+    if let Some(point) = third_point(c, di) {
+        let bis = &c.bi_list[point.start..point.end];
+        if bis.last().unwrap().direction == Direction::Down {
             cache.signal_references.insert(reference_key, SignalReference::capture(
-                c, di, bis, &key_positions, ReferenceKind::KeyUpBiOverlap,
-                (zd, zg),
+                c, di, bis, &[1, 2, 3], ReferenceKind::CanonicalZs,
+                (point.zd, point.zg),
             ));
-            return signals;
+            return make_kline_signal_v2(&k1, &k2, k3, "三买", &format!("{}笔", bis.len()));
         }
     }
     make_kline_signal_v2(&k1, &k2, k3, "其他", "其他")

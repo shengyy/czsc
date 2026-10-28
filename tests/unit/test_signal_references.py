@@ -6,7 +6,7 @@ import pickle
 import pandas as pd
 import pytest
 
-from czsc import BarGenerator, CzscSignals, Freq, RawBar, format_standard_kline
+from czsc import BarGenerator, CzscSignals, Freq, RawBar, format_standard_kline, get_zs_seq
 from czsc.mock import generate_symbol_kines
 
 NAMES = ("cxt_third_buy_V230228", "cxt_third_bs_V230318")
@@ -55,16 +55,14 @@ def assert_references(cs):
             assert_bi(b, bis[index], index < finished)
         assert r["zd"] == max(b["low"] for b in r["overlap_bis"])
         assert r["zg"] == min(b["high"] for b in r["overlap_bis"])
+        assert r["kind"] == "canonical_zs"
+        assert [b["position"] for b in r["overlap_bis"]] == [1, 2, 3]
+        centres = [z for z in get_zs_seq(bis[:min(end, finished)]) if len(z.bis) >= 3 and z.is_valid()]
+        assert r["zd"] == centres[-1].zd
+        assert r["zg"] == centres[-1].zg
         if "三买辅助" in key:
-            assert r["kind"] == "key_up_bi_overlap"
             assert cs.s[key].split("_")[1] == f"{w['n']}笔"
-            assert all(b["direction"] == "Up" for b in r["overlap_bis"])
-            assert r["zd"] < r["zg"]
-        else:
-            assert r["kind"] == "b1_b3_overlap"
-            assert w["n"] == 5
-            assert [b["position"] for b in r["overlap_bis"]] == [1, 3]
-            assert r["zd"] <= r["zg"]
+        assert r["zd"] <= r["zg"]
 
 
 def test_stream_current_content_same_value_changes_and_disappearance(bars):
@@ -189,7 +187,7 @@ def test_rebuild_configs_and_frequency_do_not_leak_old_hits(bars, hit_cases):
 
 def test_aggregated_tail_revisions_refresh_current_operands():
     bars = format_standard_kline(
-        generate_symbol_kines("000001", "5分钟", "20230101", "20230701", seed=42), freq=Freq.F5
+        generate_symbol_kines("000001", "5分钟", "20230101", "20240101", seed=42), freq=Freq.F5
     )
     bg = BarGenerator(base_freq="5分钟", freqs=["30分钟"], max_count=10000)
     for bar in bars[:600]:

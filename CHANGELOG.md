@@ -11,11 +11,13 @@
 
 ### Fixed
 
+- BS1/BS2/BS3 auxiliary signals now use canonical BI centres and explicit entering, leaving and first-retest relationships. BS1 includes observable single-centre consolidation divergence; BS2 requires the immediately preceding structural BS1 and a strict unbroken anchor; BS3 uses the latest valid finished centre and checks the complete retest price path. Old arbitrary-window overlaps no longer override a newer centre.
 - `print_df_sample` now declares its `tabulate` runtime dependency, including in built wheels. Environment defaults, nullable Feishu sheet selection and research/replay result classes have accurate type annotations without changing runtime behavior.
 - `resample_to_daily` promotes both datetime join keys to a common precision, supporting ns/us/ms/s inputs on pandas 3 without rounding dates or changing the snapshot rows carried forward. The output remains datetime without a fixed unit guarantee.
 
 ### Breaking Changes
 
+- `1.0.1+ashare.20261028` changes the **meaning**, but not names, arguments, Signal keys or four-part value shape, of `cxt_first_buy/sell_V221126`, `cxt_second_bs_V230320`, `cxt_third_buy_V230228` and `cxt_third_bs_V230318`. Re-run backtests and rebuild streaming state from bars on upgrade. Reference fields are unchanged; `kind=canonical_zs` now identifies the initial three centre BIs. Old reference kinds remain deserializable, but old cached signal results must not be reused as new results. Internal Rust `utils::cxt::check_first_buy/sell` heuristics have been replaced by the shared centre-based predicates.
 - This public fork supports Python 3.14 only and requires pandas >= 3.0.5. Older Python releases and the unreachable talib-rs test extra are no longer supported. The native abi3 floor is unchanged; wheel metadata enforces the supported runtime.
 
 ### Development
