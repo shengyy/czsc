@@ -26,10 +26,34 @@ def eligible(snapshot):
     return [r for r in snapshot["results"] if r["status"] in ("confirmed_valid", "forming_retest")]
 
 
+STATE_FIELDS = {
+    "basis",
+    "di",
+    "as_of",
+    "status",
+    "previous_zs",
+    "latest_finished_zs",
+    "zs_candidate",
+    "candidate_stroke",
+    "results",
+}
+
+
+def read_structure(c, di=1):
+    """Compare every light field with full, including failed operand references."""
+    full = czsc.get_structure(c, di=di)
+    light = czsc.get_structure_state(c, di=di)
+    assert set(light) == STATE_FIELDS
+    assert light == {key: full[key] for key in STATE_FIELDS}
+    json.dumps(light, allow_nan=False)
+    return full
+
+
 def test_public_function_is_native_and_missing_material_is_explicit(bars):
     assert czsc.get_structure is czsc._native.get_structure
+    assert czsc.get_structure_state is czsc._native.get_structure_state
     c = czsc.CZSC(bars[:10])
-    s = czsc.get_structure(c)
+    s = read_structure(c)
     assert s["status"] == "missing_material"
     assert s["basis"] == "bi_proxy"
     assert s["macd"]["hist_scale"] == 1
@@ -45,7 +69,7 @@ def test_stream_geometry_roles_signals_and_forming_are_the_same_owner(bars):
     stages, families, tails = set(), set(), set()
     for bar in bars[100:]:
         c.update(bar)
-        s = czsc.get_structure(c)
+        s = read_structure(c)
         zones = [z for z in c.zs_list if len(z.bis) >= 3 and z.is_valid()]
         for key, offset in [("latest_finished_zs", 1), ("previous_zs", 2)]:
             if len(zones) >= offset:
@@ -109,7 +133,7 @@ def test_stream_geometry_roles_signals_and_forming_are_the_same_owner(bars):
 
 def test_per_bi_macd_is_exactly_the_published_raw_interval(bars):
     c = czsc.CZSC(bars[:1400], max_bi_num=100)
-    s = czsc.get_structure(c)
+    s = read_structure(c)
     raw = s["macd"]["bars"]
     assert not s["macd"]["truncated"]
     assert len(raw) == len(c.bars_raw)
@@ -143,8 +167,8 @@ def test_prefix_replay_revision_copy_and_detached_results(bars):
         c.update(bar)
         if i % 41:
             continue
-        original = czsc.get_structure(c)
-        assert original == czsc.get_structure(czsc.CZSC(bars[: i + 1], max_bi_num=8))
+        original = read_structure(c)
+        assert original == read_structure(czsc.CZSC(bars[: i + 1], max_bi_num=8))
         clone = copy.deepcopy(c)
         revised = czsc.RawBar(
             symbol=bar.symbol,
@@ -160,14 +184,14 @@ def test_prefix_replay_revision_copy_and_detached_results(bars):
         )
         c.update(revised)
         expected = czsc.CZSC(bars[:i] + [revised], max_bi_num=8)
-        assert czsc.get_structure(c) == czsc.get_structure(expected)
+        assert read_structure(c) == read_structure(expected)
         c.update(bar)
-        assert czsc.get_structure(c) == original == czsc.get_structure(clone)
-        snapshot = czsc.get_structure(c)
+        assert read_structure(c) == original == read_structure(clone)
+        snapshot = read_structure(c)
         snapshot["results"].clear()
         snapshot["macd"]["bars"].clear()
-        assert czsc.get_structure(c) == original
-        sliced = czsc.get_structure(c, di=2)
+        assert read_structure(c) == original
+        sliced = read_structure(c, di=2)
         assert sliced["candidate_stroke"]["reason"] == "di_is_not_history"
         assert all(r["status"] != "forming_retest" for r in sliced["results"])
 
@@ -185,7 +209,7 @@ def test_signal_references_and_public_snapshot_share_first_second_operands(bars)
         assert set(refs) == {k for k, v in cs.s.items() if v.startswith(("一买_", "一卖_", "二买_", "二卖_"))}
         if not refs:
             continue
-        s = czsc.get_structure(cs.kas["30分钟"])
+        s = read_structure(cs.kas["30分钟"])
         for ref in refs.values():
             structure = ref["structure"]
             seen.add(structure["kind"])
@@ -205,7 +229,7 @@ def test_second_like_has_direct_native_parent_and_current_core_roles():
         generate_symbol_kines("000001", "30分钟", "20230101", "20250101", seed=7), freq=czsc.Freq.F30
     )
     c = czsc.CZSC(rows[:982], max_bi_num=50, min_bi_len=6)
-    snapshot = czsc.get_structure(c)
+    snapshot = read_structure(c)
     result = next(r for r in snapshot["results"] if r["kind"] == "second_like" and r["status"] == "confirmed_valid")
     reference = result["reference"]
     chain = reference["b2_chain"]
@@ -234,10 +258,10 @@ def test_second_like_has_direct_native_parent_and_current_core_roles():
         )
     )
     assert not any(
-        r["kind"] == "second_like" and r["status"] == "confirmed_valid" for r in czsc.get_structure(c)["results"]
+        r["kind"] == "second_like" and r["status"] == "confirmed_valid" for r in read_structure(c)["results"]
     )
     c.update(last)
-    assert czsc.get_structure(c) == snapshot
+    assert read_structure(c) == snapshot
 
 
 def test_daily_research_stages_use_the_same_signal_owner():
@@ -248,7 +272,7 @@ def test_daily_research_stages_use_the_same_signal_owner():
     stages = set()
     for bar in rows[100:]:
         c.update(bar)
-        snapshot = czsc.get_structure(c)
+        snapshot = read_structure(c)
         stages.update(r["status"] for r in eligible(snapshot))
         expected = any(
             r["kind"] == "third" and r["status"] == "confirmed_valid" and r["direction"] == "Down"
@@ -258,3 +282,35 @@ def test_daily_research_stages_use_the_same_signal_owner():
         if stages == {"confirmed_valid", "forming_retest"}:
             break
     assert stages == {"confirmed_valid", "forming_retest"}
+
+
+def test_light_full_missing_coverage_retains_same_reason_and_operands(bars):
+    c = czsc.CZSC(bars[:100], max_bi_num=50, min_bi_len=6)
+    for bar in bars[100:]:
+        c.update(bar)
+        snapshot = read_structure(c)
+        first = next(
+            (r for r in snapshot["results"] if r["kind"] == "first" and r["status"] == "confirmed_valid"), None
+        )
+        if first is not None:
+            break
+    assert first is not None
+    entry = first["reference"]["entry"]
+    # Remove one raw source row from the native serde snapshot while retaining
+    # its BI/NewBar evidence. This simulates incomplete coverage, not geometry.
+    saved = c.__getstate__()
+    state = json.loads(saved)
+    index = next(i for i, b in enumerate(state["bars_raw"]) if entry["sdt"] < b["dt"] < entry["edt"])
+    del state["bars_raw"][index]
+    c.__setstate__(json.dumps(state).encode())
+    missing = read_structure(c)
+    actual = next(r for r in missing["results"] if (r["kind"], r["direction"]) == ("first", first["direction"]))
+    assert (actual["status"], actual["reason"]) == ("unavailable", "missing_coverage")
+    assert actual["reference"]["entry"] == entry
+    assert actual["reference"]["macd_comparison"]["entry_area"] is None
+    c.__setstate__(saved)
+    assert read_structure(c) == snapshot
+    light = czsc.get_structure_state(c)
+    light["results"].clear()
+    light["latest_finished_zs"]["members"].clear()
+    assert read_structure(c) == snapshot

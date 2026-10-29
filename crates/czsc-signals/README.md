@@ -45,6 +45,8 @@ println!("registered: {}", funcs.len());
 
 Python 新增 `czsc.get_structure(c, di=1)`；Rust 为 `czsc::get_structure(&c, 1)`。它给末两有效核、1/2 笔尾组、NewBar 候选、角色引用、所有当前 BI 和原生逐 bar/逐笔 MACD。`finished_bis` 仅是当前成员口径，不能叫不可重画确认。
 
+逐 K 观察使用 `czsc.get_structure_state(c, di=1)` / Rust `czsc::get_structure_state(&c, 1)`。两个公开视图共享 `structure.rs::evaluate_structure`，light 只返回 `basis/di/as_of/status`、`results`（含原有完整引用）、候选和末两有效核/尾核身份，不构建全 BI power 或逐 bar MACD 投影。原生数值资格判断仍执行，未增缓存、状态数据库或 Python 规则；完整 `get_structure` 仅在最终数值包需要时调用。
+
 `di>1` 是当前列表切片，不是历史快照；forming 禁用。首次可知由应用逐 K 观察记录，不能拿端点时间倒填。升级时从 raw 重建热状态；旧快照可解码不等于旧标签已具有新语义。其它历史版本策略不属于本次已审五入口。
 
 字段、有限类二子集、数值缺失、缓存精度、构建和资源限制见 [完整合同及验收](../../docs/chan-native-structure-20261029.md)。

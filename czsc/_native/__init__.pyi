@@ -36,6 +36,7 @@ __all__ = [
     "create_fake_bis",
     "format_standard_kline",
     "get_structure",
+    "get_structure_state",
     "get_zs_seq",
     "is_bis_down",
     "is_bis_up",
@@ -1411,6 +1412,13 @@ def get_structure(c: CZSC, di: builtins.int = 1) -> dict:
     Native BI-proxy structures, role operands, stages and MACD(12,26,9).
     di is a current-list slice, not a historical snapshot. All times are natural
     endpoints/cutoffs; first-known times belong to the caller's prefix observer.
+    """
+
+def get_structure_state(c: CZSC, di: builtins.int = 1) -> dict:
+    r"""
+    Lightweight native stages, unchanged role references and candidate/core identities.
+    Same evaluation as get_structure, without all-BI power or per-bar MACD output.
+    di slices the current list; first-known times belong to the caller's prefix observer.
     """
 
 def get_zs_seq(bis: typing.Sequence[BI]) -> builtins.list[ZS]:

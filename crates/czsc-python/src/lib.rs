@@ -17,6 +17,7 @@ mod utils;
 fn _native(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     czsc_core::python::register(py, m)?;
     m.add_function(wrap_pyfunction!(structure::get_structure, m)?)?;
+    m.add_function(wrap_pyfunction!(structure::get_structure_state, m)?)?;
     czsc_utils::python::register(py, m)?;
     czsc_ta::python::register(py, m)?;
 

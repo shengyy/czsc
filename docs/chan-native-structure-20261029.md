@@ -4,12 +4,13 @@
 ## 本机验收摘要
 
 - 本批只施工 CZSC 上游；canonical 几何 owner 的 `analyze/utils.rs` 与 `e864cfb` 完全相同（SHA-256 `cbae6d14ef9ba9ae9b79acb56f3b82e0721b73049ab20720ef618adc30ae3af5`）。
-- Rust core/signals/trader：249 项通过；安装优化 wheel 后的全部 `tests/unit`：283 项通过。另有旧基线上的 2 项预期 RED，分别隔离经验笔数门与 MA 唯一阻断；新实现对应测试为 GREEN。
+- 含轻量补充的最终回归：Rust facade/core/signals/trader 250 项通过；安装优化 wheel 后的全部 `tests/unit` 284 项通过。原批 249/283 项保留通过。旧基线的 2 项预期 RED 分别隔离经验笔数门与 MA 唯一阻断；补充 API 在旧 wheel 上另有 1 项预期 RED（接口不存在），最终均 GREEN。
 - 独立 TA-Lib 0.8.3：7,320 根 mock / 230 个快照，预热 mask 一致，最大误差 `8.53e-14`。
-- 优化构建的完整 snapshot（含序列化）本机采样 P50 约 2.56 ms / P95 约 3.53 ms；末次为 827 raw / 49 BI，JSON 147,137 bytes。这不是应用全市场召回预算或自然行情收益验收。
+- 原批 30 分钟 mock 的完整 snapshot（含序列化）抽样 P50 约 2.56 ms / P95 约 3.53 ms，末次 JSON 147,137 bytes。补充已实测日线逐 K：light `update + read` P50 1.03–1.04 ms / P95 1.26–1.28 ms，full P50 1.91–1.97 ms / P95 2.21–2.36 ms；每轮累计 JSON 减少约 94.3%。样本、调用数、字节格式和局限见下方测量表，不代表全市场预算已过。
 - 构建：`target/wheels-release/czsc-1.0.1+ashare.20261029-cp310-abi3-macosx_11_0_arm64.whl`。独立环境：本树 `.venv`、`target/chan-native`；下游按最终 Git commit 锁定，不能采用本地路径依赖。
 - 完整样例：`target/acceptance/mock-structure-seed7-prefix982.json`；该 mock 固定 `seed=7, min_bi_len=6, max_bi_num=50`，展示 `second_like/Down/confirmed_valid`、有限 B2 父链、新核 `[87.76, 91.23]` 和当前回试。`tests/__init__.py` 的默认笔长为 7，冻结样例显式固定 6，避免隐藏环境改变材料。
-- 最终证据：`target/acceptance/{rust-tests.log,python-wheel-tests.log,expected-red-baseline.log,native-oracle-release.json,stub-gen.log,rustfmt.log,lint.log}`。无范围外顺手修复；缓存精度和旧引用解码是本批一致性所需修复。未运行真实 QMT、付费模型回放或自然行情全池验收。
+- 原批证据：`target/acceptance/{rust-tests.log,python-wheel-tests.log,expected-red-baseline.log,native-oracle-release.json,stub-gen.log,rustfmt.log,lint.log}`。无范围外顺手修复；缓存精度和旧引用解码是本批一致性所需修复。未运行真实 QMT、付费模型回放或自然行情全池验收。
+- 轻量补充证据另存 `target/acceptance/light-*`，保留原批日志/样例；`light-rust-tests.log`、`light-python-wheel-tests.log`、`light-daily-prefix-benchmark.json` 对应最终回归/测量，`light-before-prefix-digest.json` 和 `light-frozen-full-parity.json` 证明补充前后同源状态与冻结全量样例一致。
 
 
 ## Scope and ownership
@@ -43,6 +44,20 @@ let facts = czsc::get_structure(&c, 1);
 `get_structure` is new because an analyzer alone has no signal-cache accessor, while the required snapshot combines core geometry with signal-owned MACD and stages. Putting it on the signals side avoids a core→signals dependency or duplicate Python logic. It accepts an existing analyzer; it does not fetch market data or create a second analyzer. The signal cache and this public read call the same numerical implementation on the exact same retained input.
 
 The returned Python object is a detached `dict`; Rust returns `StructureSnapshot`, serializable with serde. Dates are native UTC-tagged ISO values (the same convention as existing `signal_references`); no timezone conversion occurs here. The caller must preserve its existing market-time coordinate convention.
+
+For per-bar first-known observation use `czsc.get_structure_state(c, di=1)` / Rust `czsc::get_structure_state(&c, 1) -> StructureState`. Both views call the same `structure.rs::evaluate_structure`; only `get_structure` subsequently constructs the full numerical projection. No signal qualification, reference semantics or existing full fields changed in this supplement.
+
+The light view contains exactly `basis, di, as_of, status, previous_zs, latest_finished_zs, zs_candidate, candidate_stroke, results`. Every nested field equals the corresponding full field, including rejected operands, missing reasons and the MACD comparison required to qualify first points/parents. It omits `bis`, `last_signal_bi`, `ubi_newbar_count`, `zs_relation`, `candidate_power`, `macd`. The light path neither computes all-BI/candidate power nor constructs/serializes the per-bar `MacdFacts` projection. Qualification still computes the current retained-input MACD and the needed comparison operands. There is no approximate cache, extra state store, event engine or durable identity.
+
+```python
+for bar in received_bars:
+    c.update(bar)
+    state = czsc.get_structure_state(c)
+    # Pass state to the application's existing prefix observer.
+facts = czsc.get_structure(c)  # once, when the final numerical package is needed
+```
+
+The separate typed view keeps the original Rust `StructureSnapshot` fields and Python `get_structure` shape intact. Python is still a direct native re-export with only the shared serde-to-dict binding. No version bump is made for this same unpublished batch; downstream must pin the final commit, not the reused local wheel filename/version alone.
 
 | Field | Meaning |
 | --- | --- |
@@ -139,19 +154,46 @@ Run from this checkout. `-I` and pytest importlib mode deliberately test the ins
 
 ```sh
 UV_PROJECT_ENVIRONMENT="$PWD/.venv" uv sync --locked --no-install-project
-PYO3_PYTHON=/opt/homebrew/opt/python@3.14/bin/python3.14 CARGO_TARGET_DIR="$PWD/target/chan-native" cargo test -p czsc-core -p czsc-signals -p czsc-trader --lib --tests
+PYO3_PYTHON=/opt/homebrew/opt/python@3.14/bin/python3.14 CARGO_TARGET_DIR="$PWD/target/chan-native" cargo test -p czsc -p czsc-core -p czsc-signals -p czsc-trader --lib --tests
 PYO3_PYTHON=/opt/homebrew/opt/python@3.14/bin/python3.14 CARGO_TARGET_DIR="$PWD/target/chan-native" cargo run --bin stub_gen -p czsc-python --no-default-features --features stub-gen
 PYO3_PYTHON=/opt/homebrew/opt/python@3.14/bin/python3.14 CARGO_TARGET_DIR="$PWD/target/chan-native" .venv/bin/maturin build --release --out target/wheels-release
 uv pip install --python .venv/bin/python --reinstall --no-deps target/wheels-release/czsc-1.0.1+ashare.20261029-cp310-abi3-macosx_11_0_arm64.whl
-.venv/bin/python -I -m pytest --import-mode=importlib tests/unit/test_native_structure.py tests/unit/test_signal_references.py tests/unit/test_czsc_tail_revision.py tests/unit/test_joint_macd_owner.py tests/unit/test_structure_analysis_api.py
+.venv/bin/python -I -m pytest --import-mode=importlib tests/unit
 uv pip install --python .venv/bin/python TA-Lib==0.8.3
 .venv/bin/python -I scripts/verify_native_structure.py --talib
+.venv/bin/python -I scripts/benchmark_structure_state.py --rounds 2 --warmup 200 --example-out target/acceptance/light-daily-example.json
 ```
 
 `TA-Lib` is an isolated test oracle only, not a runtime dependency. The wheel is macOS arm64; the package still requires Python >=3.14 even though PyO3's extension ABI floor is cp310. Linux consumers must build the same Git commit on their platform.
+
+## Daily prefix measurement (light supplement)
+
+Measured through the installed optimized wheel on macOS arm64 / Python 3.14.7 / wbt 0.2.1. The stable `czsc.mock.generate_symbol_kines("000001", "日线", "20100101", "20250101", seed=7)` sample has **3,914 bars**, frame SHA-256 `1356a23dec5f817459c1a4fbb23902246946c517d8b4621a3d3319326c92d2be`. Each run creates its own analyzer (`max_bi_num=50, min_bi_len=6`), warms up with 200 bars and then makes **3,714 sequential update calls and 3,714 read calls**, without sampling/skipping prefixes. Order is full→light, then light→full. Four runs total 14,856 measured update/read pairs, plus four final full-package reads outside the timer. Final retained material is 782 raw bars / 50 BIs.
+
+| Round / view | Total update + read | P50 / P95 update + read | P50 / P95 read alone |
+| --- | ---: | ---: | ---: |
+| 1 full | 7,106.64 ms | 1.968 / 2.357 ms | 1.963 / 2.351 ms |
+| 1 light | 3,725.18 ms | 1.038 / 1.277 ms | 1.036 / 1.274 ms |
+| 2 light | 3,672.81 ms | 1.027 / 1.257 ms | 1.024 / 1.252 ms |
+| 2 full | 6,799.60 ms | 1.911 / 2.210 ms | 1.907 / 2.208 ms |
+
+| View (identical bytes both rounds) | Sum across 3,714 returns | P50 / P95 bytes | Maximum / last bytes |
+| --- | ---: | ---: | ---: |
+| full | 456,415,920 | 125,566.5 / 145,018.2 | 151,526 / 140,684 |
+| light | 26,220,945 | 6,503 / 11,946 | 18,454 / 16,031 |
+
+The timed calls include native numerical/structure computation, Rust serde and PyO3 JSON decoding. Initialization, Python byte-count serialization, equality hashing, counters, deletion of returned dicts and the extra final full package are excluded. The JSON report separately records complete loop wall time including bookkeeping. Bytes are UTF-8 JSON with compact separators and `ensure_ascii=False`, measured for every return; they are not a peak-RSS measurement and use a different whitespace format from the original 147,137-byte single-snapshot probe.
+
+All four runs have the same ordered prefix-state digest `b6a302bda4eed1dff0b46f6ce6a640ae9e6a7beb5a6495e74246610602490af6`, also identical to the pre-supplement `a60fc7d` wheel on these prefixes. This covers all nine light fields and their entire nested failed/eligible references, not labels alone. Confirmed first/second/third and forming second/third in both directions are present. The prior complete `seed=7` 30-minute prefix-982 second-like snapshot also remains exactly equal, including all BI and per-bar numerical output. Rust and wheel regression separately cover same-dt replacement/restoration, cold prefix replay, retained-input pruning, missing coverage, warmup/non-finite/zero-area material, di slices and forming-vs-confirmed qualification.
+
+Use `target/acceptance/light-daily-example.json` for a final daily light view and `light-mock-seed7-prefix982.json` for the finite second-like reference example. The benchmark script contains no EMA, signal or geometry implementation.
+
+Limit: this is a single local serial mock stream, not natural quotes, a 4,000-symbol pool, concurrent workers, the application's observer/storage, or a premarket wall-clock acceptance test. Light still spends about 1 ms per read here computing qualification MACD and canonical relations/references. That remaining cost has not been declared irreducible or extrapolated into a full-pool pass; application budget validation must measure its actual integration. No signal-policy shortcut or approximate long-lived cache was introduced to improve the numbers.
 
 ## Code organization and remaining boundaries
 
 The reviewed CXT first/second/third functions were extracted into `cxt_points.rs`; numerical MACD into `utils/macd.rs`; interval values into `utils/bi_power.rs`; snapshot projection into `structure.rs`; core tail geometry into `analyze/candidate.rs`. The pre-existing `cxt.rs` and `utils/ta.rs` still exceed 1,200 lines because they contain unrelated registered signal/TA families. This batch removes the owned responsibilities rather than renaming unrelated code into `part1`/wrapper files. The new owner files stay below 800 lines.
 
-Full retained MACD plus all BI/core references intentionally cost more bytes than a compact model prompt. The application should persist the full needed values and project only relevant roles/ranges with explicit coverage, not silently recompute or fill missing history. The standalone probe records actual time and output bytes; it is not a full-market throughput or production memory claim.
+The supplement keeps both views in the same 238-line `structure.rs` owner. The touched `czsc/_native/__init__.pyi` exceeds 1,200 lines because it is the single generated native-module stub; it is regenerated by `stub_gen`, not manually split or independently maintained.
+
+Full retained MACD plus all BI/core references intentionally cost more bytes than a compact model prompt. Use `get_structure_state` for each observed prefix and `get_structure` for the final needed values; project only relevant roles/ranges with explicit coverage, without silently recomputing or filling missing history. The standalone probes record actual time and output bytes; they are not full-market throughput or production memory claims.

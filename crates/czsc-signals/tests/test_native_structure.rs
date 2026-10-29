@@ -33,7 +33,7 @@ use czsc_core::{
     objects::{bar::NewBar, direction::Direction},
 };
 use czsc_signals::{
-    structure::get_structure,
+    structure::{StructureSnapshot, get_structure, get_structure_state},
     utils::{
         bi_power::bi_power,
         bs::{PointKind, evaluate_first, evaluate_second, evaluate_second_like, evaluate_third},
@@ -41,6 +41,29 @@ use czsc_signals::{
     },
 };
 use fixture::{powered_structure, raw};
+
+// Check the complete lightweight contract, not only eligible labels. Failed
+// references, core/candidate identity and missing reasons must also agree.
+fn checked_structure(c: &czsc_core::analyze::CZSC, di: usize) -> StructureSnapshot {
+    let full = get_structure(c, di);
+    let full_json = serde_json::to_value(&full).unwrap();
+    let light = serde_json::to_value(get_structure_state(c, di)).unwrap();
+    assert_eq!(light.as_object().unwrap().len(), 9);
+    for key in [
+        "basis",
+        "di",
+        "as_of",
+        "status",
+        "previous_zs",
+        "latest_finished_zs",
+        "zs_candidate",
+        "candidate_stroke",
+        "results",
+    ] {
+        assert_eq!(light.get(key).unwrap(), &full_json[key], "{key}");
+    }
+    full
+}
 
 #[test]
 fn macd_coverage_warmup_nonfinite_and_zero_area_are_not_filled_with_zero() {
@@ -51,6 +74,7 @@ fn macd_coverage_warmup_nonfinite_and_zero_area_are_not_filled_with_zero() {
         (result.status, result.reason),
         ("unavailable", Some("warmup"))
     );
+    checked_structure(&short, 1);
     let c = powered_structure(&prices);
     let source = native_macd(&c);
     let eval = evaluate_first(&c, 5, Direction::Down, &source);
@@ -91,6 +115,7 @@ fn macd_coverage_warmup_nonfinite_and_zero_area_are_not_filled_with_zero() {
         evaluate_first(&missing, 5, Direction::Down, &native_macd(&missing)).reason,
         Some("missing_coverage")
     );
+    checked_structure(&missing, 1);
     let mut zero = c.clone();
     for b in &mut zero.bars_raw {
         b.close = 20.;
@@ -101,7 +126,8 @@ fn macd_coverage_warmup_nonfinite_and_zero_area_are_not_filled_with_zero() {
         ("unavailable", Some("zero_entry_area"))
     );
     assert_eq!(e.point.unwrap().macd_comparison.unwrap().ratio, None);
-    let s = get_structure(&bad, 1);
+    checked_structure(&zero, 1);
+    let s = checked_structure(&bad, 1);
     assert!(serde_json::to_string(&s).is_ok());
     assert_eq!(s.macd.hist_scale, 1.);
     assert!(s.macd.bars[..33].iter().all(|b| b.hist.is_none()));
@@ -170,7 +196,7 @@ fn forming_second_and_third_have_native_anchors_but_are_never_confirmed_signals(
                 .collect();
             let c = forming(&prices, &[if buy { tail } else { 40. - tail }]);
             let direction = if buy { Direction::Down } else { Direction::Up };
-            let snapshot = get_structure(&c, 1);
+            let snapshot = checked_structure(&c, 1);
             let kind = if second {
                 PointKind::Second
             } else {
@@ -253,7 +279,7 @@ fn pure_breakout_extension_and_withdrawn_old_retest_do_not_revive() {
     let c = forming(&[10., 20., 15., 19., 16., 24.], &[24.5]);
     assert_eq!(c.get_candidate_stroke().kind.as_deref(), Some("extension"));
     assert!(
-        !get_structure(&c, 1)
+        !checked_structure(&c, 1)
             .results
             .iter()
             .any(|e| e.status == "forming_retest")
@@ -271,7 +297,7 @@ fn pure_breakout_extension_and_withdrawn_old_retest_do_not_revive() {
 #[test]
 fn centre_geometry_is_unchanged_and_di_never_claims_to_be_history() {
     let c = forming(&[10., 20., 15., 19., 16., 24., 22., 25., 23., 26.], &[25.5]);
-    let snap = get_structure(&c, 1);
+    let snap = checked_structure(&c, 1);
     let valid: Vec<_> = get_zs_seq(c.finished_bis_slice())
         .into_iter()
         .filter(|z| z.bis.len() >= 3 && z.is_valid())
@@ -282,7 +308,7 @@ fn centre_geometry_is_unchanged_and_di_never_claims_to_be_history() {
         (r.sdt, r.edt, r.zd, r.zg, r.dd, r.gg),
         (z.sdt, z.edt, z.zd, z.zg, z.dd, z.gg)
     );
-    let sliced = get_structure(&c, 2);
+    let sliced = checked_structure(&c, 2);
     assert_eq!(
         sliced.candidate_stroke.reason.as_deref(),
         Some("di_is_not_history")
@@ -294,7 +320,7 @@ fn centre_geometry_is_unchanged_and_di_never_claims_to_be_history() {
     {
         assert!(zone.retest.is_none_or(|b| b.position <= sliced.bis.len()));
     }
-    assert_eq!(get_structure(&c, 0).status, "missing_material");
+    assert_eq!(checked_structure(&c, 0).status, "missing_material");
 }
 
 #[test]
@@ -388,5 +414,47 @@ fn long_valid_third_point_is_not_vetoed_by_declining_ma() {
             .unwrap()
             .stage,
         "confirmed_valid"
+    );
+}
+
+#[test]
+fn lightweight_prefix_and_same_dt_revision_preserve_exact_state() {
+    use czsc_core::analyze::CZSC;
+    let bars = powered_structure(&[
+        20., 10., 18., 16., 21., 12., 19., 17., 23., 14., 20., 18., 25., 16., 24., 20.,
+    ])
+    .bars_raw;
+    let mut c = CZSC::new(bars[..40].to_vec(), 8, 6);
+    let mut available = 0;
+    for (i, bar) in bars.iter().enumerate().skip(40) {
+        c.update_bar(bar.clone());
+        checked_structure(&c, 1);
+        let original = get_structure_state(&c, 1);
+        let cold = CZSC::new(bars[..=i].to_vec(), 8, 6);
+        assert_eq!(original, get_structure_state(&cold, 1));
+        available += usize::from(original.candidate_stroke.state == "available");
+        if i % 17 == 0 {
+            let mut revised = bar.clone();
+            revised.high += 3.;
+            revised.low -= 2.;
+            c.update_bar(revised.clone());
+            checked_structure(&c, 1);
+            let mut revised_prefix = bars[..i].to_vec();
+            revised_prefix.push(revised);
+            assert_eq!(
+                get_structure_state(&c, 1),
+                get_structure_state(&CZSC::new(revised_prefix, 8, 6), 1)
+            );
+            c.update_bar(bar.clone());
+            checked_structure(&c, 1);
+            assert_eq!(get_structure_state(&c, 1), original);
+            checked_structure(&c, 0);
+            checked_structure(&c, 2);
+        }
+    }
+    assert!(available > 20);
+    assert!(
+        c.bars_raw.len() < bars.len(),
+        "exercise actual retained history"
     );
 }
