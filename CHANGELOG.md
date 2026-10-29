@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+### 1.0.1+ashare.20261029（本地合同，未发布）
+
+- 原生 `get_structure` 提供 BI 代理结构阶段、末两合法 canonical 核、1/2 笔尾候选、NewBar 尾段、角色引用和逐 bar/逐笔 MACD；Python 纯透传。
+- 已审 first/second/third 五入口共享同一求值：一类改同核 MACD 面积，二/三类删除 MA 与经验笔数否决；逐 raw 守界、固定锚、forming/confirmed 分离。
+- MACD 缓存移除尾窗重新播种，精确读取当前保留输入；缺预热/覆盖/非有限与零进入面积显式不可判定。
+- 信号键保留，MA 参数仅保留键兼容。信号值语义有变化；升级后须从 raw 重建热状态。引用新增字段兼容旧 JSON/MessagePack，版本源仍为 Cargo。
+- API、限制、构建及验收见 [native structure contract](docs/chan-native-structure-20261029.md)。本批未 push、发布或部署。
+
 ### Fixed
 
 - Canonical BI centres now separate incoming context from the three-BI core. An outside retest can reassign two trailing BIs to a confirmed new core while preserving the old initial three BIs. `CZSC.zs_list`, BS1/BS2/BS3 and signal references share this one core implementation; signals no longer construct private centre boundaries. BS1 permits a single centre with an observable same-direction external entry, rather than every internal centre swing, BS2 requires the immediately following strict pullback, and BS3 uses the latest valid finished centre with an unbroken raw-price retest path.

@@ -88,6 +88,18 @@
 | `derive_signals_freqs` | 从信号配置列表派生周期列表 | `crates/czsc-trader/` → `czsc._native.derive_signals_freqs` | 无 |
 | `get_unique_signals` | 从 Position 列表中提取去重的唯一信号 key | `crates/czsc-trader/` → `czsc._native.get_unique_signals` | `Position` |
 
+### get_structure
+
+Python `czsc.get_structure(c, di=1)` 与 Rust `czsc::get_structure(&c, 1)` 共用原生求值及序列化。返回 `basis=bi_proxy`、末两有效核、1/2 笔尾候选、NewBar 派生的 candidate_stroke、逐 BI 原值、逐 bar MACD(12,26,9) 及 `results`。阶段只认 `confirmed_valid` / `forming_retest`；缺失原因和失败引用不授予资格。
+
+```python
+facts = czsc.get_structure(c)
+current = [r for r in facts["results"] if r["status"] in ("confirmed_valid", "forming_retest")]
+macd_bars = facts["macd"]["bars"]  # 原生 hist_scale=1，不在 Python 重算 EMA
+```
+
+`di` 仅切当前列表，`di!=1` 没有 forming。应用逐 K 观察记录首次可知；候选不冒充 BI，公开 `s` 信号仍只给 confirmed。完整字段、数值/预热和角色示例见 [合同](chan-native-structure-20261029.md)。
+
 ### CzscSignals.signal_references
 
 Python：`from czsc import CzscSignals`，读取 `cs.signal_references`；Rust：
@@ -101,28 +113,24 @@ value = cs.s.get(key)                     # key 与四段 value 形状不变，�
 reference = cs.signal_references.get(key) # 无当前命中引用时为 None
 ```
 
-每个 map key 是原 `Signal.key()`；仅 `cxt_third_buy_V230228` 和
-`cxt_third_bs_V230318` 的当前命中包含以下事实：
+每个 map key 是原 `Signal.key()`。已审 `cxt_first_buy/sell_V221126`、`cxt_second_bs_V230320`、`cxt_third_buy_V230228`、`cxt_third_bs_V230318` 的当前 confirmed 命中都有以下事实；forming 由 `get_structure` 单独提供。
 
 | 字段 | 类型 | 定义 |
 |------|------|------|
-| `kind` | string | `canonical_zs`：最新有效已完成笔中枢。旧 `key_up_bi_overlap` / `b1_b3_overlap` 仍可解码，但新版不再产生 |
-| `window` | `{di: int, n: int}` | 从该中枢起点到 `bi_list` 倒数第 `di` 笔，共 `n` 笔；两信号均为真实变长窗口 |
-| `overlap_bis` | list[ReferenceBi] | 决定中枢边界的初始三笔，位置为 1/2/3 |
-| `last_bi` | ReferenceBi | 本次判定用的首次回抽笔 |
-| `zd`, `zg` | float | 所选标准中枢下沿、上沿，允许相等；回抽须严格在边界外 |
+| `kind` | string | `canonical_zs`；旧 `key_up_bi_overlap` / `b1_b3_overlap` 仅可解码 |
+| `window` | `{di: int, n: int}` | 一/二类从真实进入笔开始，三类从核心开始，到倒数第 `di` 笔 |
+| `overlap_bis` | list[ReferenceBi] | 决定中枢边界的同核初始三笔；位置相对该窗口 |
+| `last_bi` | ReferenceBi | 参与判定的末 BI：一类为离开，二/三类为回试 |
+| `zd`, `zg` | float | 实际所选 canonical 核下沿、上沿 |
+| `structure` | dict / null | 同源 `basis=bi_proxy`、阶段和 entry/departure/rebound/retest/anchor 等操作数；旧快照为 null |
 
-`1.0.1+ashare.20261028` 更新核心层唯一的中枢划分及 BS1/BS2/BS3 语义，一买/一卖仍包含可验证的单中枢盘整背驰代理。公开 `ZS` 的边界、成员及依赖它的结构止损参考会变化；进入上下文、核心三笔与确认回退规则见 [core 合同](../crates/czsc-core/README.md)，信号判定见 [signals 合同](../crates/czsc-signals/README.md)。跨版本升级须从 K 线重建，不能把 Rust 热快照里的旧标签或引用缓存当作新版结果。
+`1.0.1+ashare.20261029` 保留 20261028 canonical 几何，替换一类力度比较并取消二/三类 MA 和经验笔数否决。信号键保留但命中集合变化。升级须从 K 线重建，不能复用旧热状态；完整语义见 [native structure 合同](chan-native-structure-20261029.md)。
 
-每个 `ReferenceBi` 只有 `position: int`（窗口内从 1 开始）、
-`direction: "Up" | "Down"`（Rust Direction 的序列化值）、
-`sdt/edt: string`（笔端点，沿用 Rust `DateTime<Utc>` 的 RFC3339 序列化）、
-`high/low: float`、`finished: bool`。
-`finished` 表示该笔属于本次 structure 的 `finished_bis`；`di > 1` 的末笔不套用全局末笔状态。
-Python 原 BI getter 的无时区时间在这里按原生存储时间序列化，不添加市场收线时间转换。
-笔端点不是信号确认时间，日线的归一化时间也不是实际确认时刻。
+`ReferenceBi` 保留 `position, direction, sdt, edt, high, low, finished`，追加可空的 `start_price/end_price`。旧快照缺价格时是 null，不填 0。legacy overlap/last 的 position 相对窗口；`structure` 角色引用的位置相对当前完整列表。自然端点、方向、价格和核心成员/边界才可用于操作数身份，列表位置不是持久 ID。
 
-`latest_finished_zs`（消费方结构字段）应反向选择已完成笔序列的最新有效且至少三笔的中枢；
+`finished` 仅表示属于当前 `finished_bis`，不是不可重画确认。时间沿用原生 `DateTime<Utc>` 的 RFC3339 序列化，不添加市场收线转换。端点时间不是首次可知或确认时刻。
+
+`get_structure.latest_finished_zs` 已由 owner 反向选择当前成员前缀最新有效且至少三笔的中枢；
 `signal_references[key]` 表示该信号本轮判定实际使用的 canonical 中枢边界。
 历史旧 kind 仍表示旧的局部 overlap，不能重解释为新版 canonical `ZS`。
 引用随当前计算更新，不固定在 `since` 时刻；事实对象不包含解释段或交易结论。

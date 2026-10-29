@@ -101,3 +101,32 @@ pub fn evaluate(c: &CZSC, name: &str, di: usize, cache: &mut TaCache) -> (String
     let s = (SIGNAL_REGISTRY[name].func)(c, &params, cache);
     (s[0].key(), s[0].value())
 }
+
+/// Dense continuous bars with a real native MACD warmup. Endpoint-only fixtures
+/// above are useful geometry mocks, but deliberately cannot prove divergence.
+pub fn powered_structure(prices: &[f64]) -> CZSC {
+    let mut c = structure(prices);
+    let mut bars: Vec<_> = (0..40).map(|i| raw(i, prices[0])).collect();
+    let mut endpoints = vec![bars.last().unwrap().clone()];
+    for p in prices.windows(2) {
+        for step in 1..=20 {
+            bars.push(raw(
+                bars.len() as i32,
+                p[0] + (p[1] - p[0]) * step as f64 / 20.,
+            ));
+        }
+        endpoints.push(bars.last().unwrap().clone());
+    }
+    for (i, bi) in c.bi_list.iter_mut().enumerate() {
+        bi.fx_a.dt = endpoints[i].dt;
+        bi.fx_b.dt = endpoints[i + 1].dt;
+        bi.fx_a.elements = vec![nb(&endpoints[i])];
+        bi.fx_b.elements = vec![nb(&endpoints[i + 1])];
+        bi.bars = bars[39 + i * 20..=39 + (i + 1) * 20]
+            .iter()
+            .map(nb)
+            .collect();
+    }
+    c.bars_raw = bars;
+    c
+}

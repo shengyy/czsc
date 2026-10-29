@@ -19,6 +19,11 @@ pub mod cxt {
     include!("cxt.rs");
 }
 
+#[signal_module(category = "kline")]
+pub mod cxt_points {
+    include!("cxt_points.rs");
+}
+
 #[signal_module(category = "trader")]
 pub mod cxt_trader {
     include!("cxt_trader.rs");
@@ -36,6 +41,7 @@ pub mod cat {
 pub mod params;
 pub mod reference;
 pub mod registry;
+pub mod structure;
 
 #[signal_module(category = "kline")]
 pub mod tas {

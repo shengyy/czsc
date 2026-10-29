@@ -54,3 +54,8 @@ println!("最新一笔方向: {:?}", czsc.bi_list.last().map(|b| b.direction));
 - 无法回退时，外侧回试为新核首笔，前一离开笔为其进入上下文。进入笔不属于它进入的核心，但可同时是前一核心的离开成员。首部或寻核期间跳过的笔不计入 ZS，不能用分组长度累计推断原笔索引。
 
 这是保留 BI 上下文中的确定性分解，未实现递归走势级别或高级别中枢扩张。历史裁剪会改变初始化上下文，不承诺跨 `max_bi_num` 裁剪保持最早核心不变；历史判定须逐K重放。`1.0.1+ashare.20261028` 升级改变公开中枢边界及成员，依赖结构止损的消费者也必须从 K 线重建并重新验证。
+
+
+## 原生尾候选
+
+`CZSC::get_candidate_stroke()` 从包含处理后的 NewBar 和末 BI/FX 提供 reverse/extension 的真实价格归属及截止，复用 `get_last_bi_extend()`，不重新实现 `check_bi`。Python 通过 `czsc.get_structure(c)` 读取同一结果。`finished_bis` 的五根 NewBar 门槛只是当前中枢成员口径，不是不可撤回确认；缺尾锚或真实价格来源时明确不可用。阶段资格由 signals owner 赋予，core 不自行宣布买卖点。

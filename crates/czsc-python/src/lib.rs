@@ -9,12 +9,14 @@ use pyo3::wrap_pyfunction;
 
 mod errors;
 mod signals_dispatcher;
+mod structure;
 mod trader;
 mod utils;
 
 #[pymodule]
 fn _native(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     czsc_core::python::register(py, m)?;
+    m.add_function(wrap_pyfunction!(structure::get_structure, m)?)?;
     czsc_utils::python::register(py, m)?;
     czsc_ta::python::register(py, m)?;
 

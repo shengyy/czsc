@@ -84,3 +84,33 @@ fn new_reference_facts_roundtrip_in_json_and_positional_messagepack() {
     assert_eq!(serde_json::to_value(json).unwrap(), expected);
     assert_eq!(serde_json::to_value(msgpack).unwrap(), expected);
 }
+
+#[test]
+fn pre_native_structure_positional_reference_prices_remain_unknown() {
+    use czsc_core::objects::direction::Direction;
+    use czsc_signals::reference::{ReferenceKind, SignalReference};
+    let old_bi = (
+        5usize,
+        Direction::Down,
+        "2026-01-01T00:00:00Z",
+        "2026-01-02T00:00:00Z",
+        15.,
+        14.,
+        true,
+    );
+    let old = (
+        ReferenceKind::CanonicalZs,
+        (2usize, 5usize),
+        Vec::<u8>::new(),
+        old_bi,
+        12.,
+        13.,
+    );
+    let decoded: SignalReference =
+        rmp_serde::from_slice(&rmp_serde::to_vec(&old).unwrap()).unwrap();
+    assert!(decoded.last_bi.finished);
+    assert_eq!((decoded.last_bi.high, decoded.last_bi.low), (15., 14.));
+    assert_eq!(decoded.last_bi.start_price, None);
+    assert_eq!(decoded.last_bi.end_price, None);
+    assert!(decoded.structure.is_none());
+}

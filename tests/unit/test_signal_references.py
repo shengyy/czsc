@@ -45,7 +45,9 @@ def assert_references(cs):
     bis = c.bi_list
     finished = len(c.finished_bis)
     for key, r in refs.items():
-        assert set(r) == {"kind", "window", "overlap_bis", "last_bi", "zd", "zg"}
+        assert set(r) == {"kind", "window", "overlap_bis", "last_bi", "zd", "zg", "structure"}
+        assert r["structure"]["basis"] == "bi_proxy"
+        assert r["structure"]["stage"] == "confirmed_valid"
         w = r["window"]
         end = len(bis) + 1 - w["di"]
         start = end - w["n"]
@@ -57,7 +59,7 @@ def assert_references(cs):
         assert r["zg"] == min(b["high"] for b in r["overlap_bis"])
         assert r["kind"] == "canonical_zs"
         assert [b["position"] for b in r["overlap_bis"]] == [1, 2, 3]
-        centres = [z for z in get_zs_seq(bis[:min(end, finished)]) if len(z.bis) >= 3 and z.is_valid()]
+        centres = [z for z in get_zs_seq(bis[: min(end, finished)]) if len(z.bis) >= 3 and z.is_valid()]
         assert r["zd"] == centres[-1].zd
         assert r["zg"] == centres[-1].zg
         if "三买辅助" in key:

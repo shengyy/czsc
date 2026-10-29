@@ -18,6 +18,7 @@ use std::io::Cursor;
 #[cfg(feature = "python")]
 use std::sync::Arc;
 use utils::{check_bi, check_fxs, remove_include};
+pub mod candidate;
 pub mod errors;
 pub mod utils;
 
@@ -171,7 +172,7 @@ impl CZSC {
         &self.bi_list[..len]
     }
 
-    /// 获取已经确认完成的笔。
+    /// 当前中枢成员口径的笔前缀；不表示不可重画。
     pub fn get_finished_bis(&self) -> Vec<BI> {
         self.finished_bis_slice().to_vec()
     }
@@ -633,42 +634,7 @@ impl CZSC {
     /// 判断最后一笔是否在延伸中，True 表示延伸中
     #[getter]
     fn last_bi_extend(&self) -> bool {
-        // 如果没有笔，返回 false
-        if self.bi_list.is_empty() {
-            return false;
-        }
-
-        // 如果没有无包含关系K线，返回 false
-        if self.bars_ubi.is_empty() {
-            return false;
-        }
-
-        let last_bi = &self.bi_list[self.bi_list.len() - 1];
-
-        match last_bi.direction {
-            Direction::Up => {
-                // 向上笔：检查当前所有无包含K线的最高价是否 > 最后一笔的高点
-                let max_high = self
-                    .bars_ubi
-                    .iter()
-                    .map(|bar| bar.high)
-                    .max_by(|a, b| a.partial_cmp(b).unwrap())
-                    .unwrap_or(0.0);
-
-                max_high > last_bi.get_high()
-            }
-            Direction::Down => {
-                // 向下笔：检查当前所有无包含K线的最低价是否 < 最后一笔的低点
-                let min_low = self
-                    .bars_ubi
-                    .iter()
-                    .map(|bar| bar.low)
-                    .min_by(|a, b| a.partial_cmp(b).unwrap())
-                    .unwrap_or(f64::MAX);
-
-                min_low < last_bi.get_low()
-            }
-        }
+        self.get_last_bi_extend()
     }
 
     /// 在浏览器中打开（与 czsc 库兼容）

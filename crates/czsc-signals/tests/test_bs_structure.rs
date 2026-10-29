@@ -5,7 +5,7 @@ use czsc_signals::{
     types::TaCache,
     utils::bs::{first_point, second_point},
 };
-use fixture::{evaluate, raw, structure};
+use fixture::{evaluate, powered_structure as structure, raw};
 
 #[test]
 fn first_points_require_real_divergence_and_are_symmetric() {
@@ -28,12 +28,13 @@ fn first_points_require_real_divergence_and_are_symmetric() {
                 .1
                 .starts_with(if buy { "一买" } else { "一卖" })
         );
-        // No volume/length decay: geometry and a smaller price leg alone do not qualify.
+        // Volume/length contraction is no longer a veto: the same raw MACD operands still qualify.
         c.bi_list[8].bars = c.bi_list[4].bars.clone();
-        assert_eq!(first_point(&c, 9, direction), None);
+        assert_eq!(first_point(&c, 9, direction), Some(5));
         c.bi_list[8].bars.truncate(6);
         // A later raw breach invalidates the still-published endpoint.
-        c.bars_raw.push(raw(10, if buy { 18.9 } else { 41.1 }));
+        c.bars_raw
+            .push(raw(c.bars_raw.len() as i32, if buy { 18.9 } else { 41.1 }));
         assert_eq!(first_point(&c, 9, direction), None);
     }
 }
@@ -143,7 +144,7 @@ fn canonical_core_excludes_the_explicit_entry_in_both_directions() {
         assert_eq!(first_point(&c, 5, direction), Some(5));
         assert!(second_point(&c, 7, direction));
         c.bi_list[0].bars.truncate(6);
-        assert_eq!(first_point(&c, 5, direction), None);
+        assert_eq!(first_point(&c, 5, direction), Some(5));
     }
 }
 
@@ -188,13 +189,13 @@ fn later_departure_closes_the_old_core_instead_of_invalidating_it() {
 }
 
 #[test]
-fn second_point_public_signal_combines_real_sma_with_structure_in_both_directions() {
+fn second_point_public_signal_uses_only_native_structure_in_both_directions() {
     use czsc_signals::registry::SIGNAL_REGISTRY;
     use serde_json::json;
     use std::collections::HashMap;
     let params: HashMap<_, _> = [
         ("di".to_owned(), json!(1)),
-        ("timeperiod".to_owned(), json!(3)),
+        ("timeperiod".to_owned(), json!(100_000)),
     ]
     .into();
     for buy in [true, false] {
