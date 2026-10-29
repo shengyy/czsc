@@ -1,3 +1,8 @@
+use super::macd::calc_ema_talib_style;
+pub use super::macd::{
+    calc_macd, calc_macd_cache_style, calc_macd_py_style, update_macd_cache,
+    update_macd_cache_py_style,
+};
 use crate::types::{BollSeries, KdjSeries, TaCache};
 use czsc_core::analyze::CZSC;
 use czsc_core::objects::bar::RawBar;
@@ -249,96 +254,6 @@ fn calc_wma_cache_style(series: &[f64], n: usize) -> Vec<f64> {
     out
 }
 
-/// 计算 MACD {dif, dea, macd}，对齐 TA-Lib 原始三元组语义：
-/// - `dif` = MACD 线
-/// - `dea` = 信号线
-/// - `macd` = 柱状图
-pub fn calc_macd(series: &[f64], short: usize, long: usize, m: usize) -> MacdSeries {
-    let len = series.len();
-    let mut dif = vec![f64::NAN; len];
-    let mut dea = vec![f64::NAN; len];
-    let mut macd = vec![f64::NAN; len];
-    if len == 0 || short == 0 || long == 0 || m == 0 || len < long {
-        return MacdSeries {
-            ids: Vec::new(),
-            dif,
-            dea,
-            macd,
-        };
-    }
-
-    let fast_offset = long.saturating_sub(short);
-    let ema_short_tail = calc_ema_talib_style(&series[fast_offset..], short);
-    let ema_long = calc_ema_talib_style(series, long);
-    let mut dif_input = vec![f64::NAN; len];
-    let mut dif_raw = vec![f64::NAN; len];
-    for i in 0..len {
-        let ema_short_i = if i >= fast_offset {
-            ema_short_tail[i - fast_offset]
-        } else {
-            f64::NAN
-        };
-        if ema_short_i.is_finite() && ema_long[i].is_finite() {
-            dif_raw[i] = ema_short_i - ema_long[i];
-            dif_input[i] = dif_raw[i];
-        }
-    }
-
-    dea = calc_ema_talib_skip_leading_nan(&dif_input, m);
-
-    for i in 0..len {
-        if dif_raw[i].is_finite() && dea[i].is_finite() {
-            dif[i] = dif_raw[i];
-            macd[i] = dif_raw[i] - dea[i];
-        }
-    }
-
-    MacdSeries {
-        ids: Vec::new(),
-        dif,
-        dea,
-        macd,
-    }
-}
-
-fn calc_ema_talib_style(series: &[f64], n: usize) -> Vec<f64> {
-    let len = series.len();
-    let mut out = vec![f64::NAN; len];
-    if len < n || n == 0 {
-        return out;
-    }
-    let alpha = 2.0 / (n as f64 + 1.0);
-    let seed = series[..n].iter().sum::<f64>() / n as f64;
-    out[n - 1] = seed;
-    for i in n..len {
-        out[i] = alpha * series[i] + (1.0 - alpha) * out[i - 1];
-    }
-    out
-}
-
-fn calc_ema_talib_skip_leading_nan(series: &[f64], n: usize) -> Vec<f64> {
-    let len = series.len();
-    let mut out = vec![f64::NAN; len];
-    let Some(start) = series.iter().position(|x| x.is_finite()) else {
-        return out;
-    };
-    let tail = calc_ema_talib_style(&series[start..], n);
-    for (i, value) in tail.into_iter().enumerate() {
-        out[start + i] = value;
-    }
-    out
-}
-
-/// 计算用于信号缓存的 MACD，默认与 `calc_macd` 使用同一 TA-Lib 原始三元组契约。
-pub fn calc_macd_cache_style(series: &[f64], short: usize, long: usize, m: usize) -> MacdSeries {
-    calc_macd(series, short, long, m)
-}
-
-/// 与 `calc_macd` 完全同义，保留仅用于兼容迁移中的旧调用点。
-pub fn calc_macd_py_style(series: &[f64], short: usize, long: usize, m: usize) -> MacdSeries {
-    calc_macd(series, short, long, m)
-}
-
 /// 计算 ATR（Wilder 平滑），与 TA-Lib ATR 口径一致
 pub fn calc_atr(high: &[f64], low: &[f64], close: &[f64], timeperiod: usize) -> Vec<f64> {
     let len = high.len().min(low.len()).min(close.len());
@@ -536,110 +451,6 @@ pub fn update_vol_ma_cache(
     cache.series.insert(cache_key.to_string(), res);
     cache.series_ids.insert(cache_key.to_string(), bar_ids);
     cache.last_len = now_len;
-}
-
-/// 更新 MACD 缓存，对齐 Python `update_macd_cache` 的增量逻辑
-pub fn update_macd_cache(
-    czsc: &CZSC,
-    cache_key: &str,
-    short: usize,
-    long: usize,
-    m: usize,
-    cache: &mut TaCache,
-) {
-    let now_len = czsc.bars_raw.len();
-    if now_len == 0 {
-        return;
-    }
-    if let Some(updated) = &mut cache.updated_macd_keys
-        && !updated.insert(cache_key.to_string())
-    {
-        return;
-    }
-    let bar_ids: Vec<i32> = czsc.bars_raw.iter().map(|b| b.id).collect();
-    let min_count = m + long + 168;
-
-    let mut need_init = !cache.macd.contains_key(cache_key) || now_len < min_count + 15;
-    if !need_init {
-        if let Some(existing) = cache.macd.get(cache_key) {
-            if now_len < 2 || existing.ids.is_empty() {
-                need_init = true;
-            } else {
-                let penultimate_id = bar_ids[now_len - 2];
-                need_init = !existing.ids.contains(&penultimate_id);
-            }
-        } else {
-            need_init = true;
-        }
-    }
-
-    if need_init {
-        let close: Vec<f64> = czsc.bars_raw.iter().map(|b| b.close).collect();
-        let mut res = calc_macd_cache_style(&close, short, long, m);
-        res.ids = bar_ids;
-        cache.macd.insert(cache_key.to_string(), res);
-        cache.last_len = now_len;
-        return;
-    }
-
-    let existing = cache.macd.get(cache_key).unwrap();
-    let mut old_map: HashMap<i32, (f64, f64, f64)> = HashMap::with_capacity(existing.ids.len());
-    for (i, id) in existing.ids.iter().enumerate() {
-        old_map.insert(*id, (existing.dif[i], existing.dea[i], existing.macd[i]));
-    }
-    let mut dif = Vec::with_capacity(now_len);
-    let mut dea = Vec::with_capacity(now_len);
-    let mut macd = Vec::with_capacity(now_len);
-    for id in &bar_ids {
-        if let Some((d1, d2, d3)) = old_map.get(id) {
-            dif.push(*d1);
-            dea.push(*d2);
-            macd.push(*d3);
-        } else {
-            dif.push(f64::NAN);
-            dea.push(f64::NAN);
-            macd.push(f64::NAN);
-        }
-    }
-
-    let window_size = (min_count + 10).min(now_len);
-    let window_start = now_len - window_size;
-    let close: Vec<f64> = czsc.bars_raw[window_start..]
-        .iter()
-        .map(|b| b.close)
-        .collect();
-    let partial = calc_macd_cache_style(&close, short, long, m);
-
-    for i in 1..=5.min(window_size) {
-        let dst_idx = now_len - i;
-        let src_idx = window_size - i;
-        dif[dst_idx] = partial.dif[src_idx];
-        dea[dst_idx] = partial.dea[src_idx];
-        macd[dst_idx] = partial.macd[src_idx];
-    }
-
-    cache.macd.insert(
-        cache_key.to_string(),
-        MacdSeries {
-            ids: bar_ids,
-            dif,
-            dea,
-            macd,
-        },
-    );
-    cache.last_len = now_len;
-}
-
-/// 与 `update_macd_cache` 完全同义，保留仅用于兼容迁移中的旧调用点。
-pub fn update_macd_cache_py_style(
-    czsc: &CZSC,
-    cache_key: &str,
-    short: usize,
-    long: usize,
-    m: usize,
-    cache: &mut TaCache,
-) {
-    update_macd_cache(czsc, cache_key, short, long, m, cache);
 }
 
 /// 更新 BOLL 缓存

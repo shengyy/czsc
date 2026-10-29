@@ -35,6 +35,8 @@ __all__ = [
     "chip_distribution_triangle",
     "create_fake_bis",
     "format_standard_kline",
+    "get_structure",
+    "get_structure_state",
     "get_zs_seq",
     "is_bis_down",
     "is_bis_up",
@@ -1403,6 +1405,20 @@ def format_standard_kline(bars: typing.Sequence[RawBar]) -> builtins.list[RawBar
     Polars DataFrame 通过标准的 pyo3-polars / arrow 路径桥接；目前
     我们接受一个预构建好的 RawBar 列表，以避免在 D.A 阶段引入 polars/python 的耦合。
     完整的 DataFrame 入口会等到 Phase E/F 接入 polars Python 桥时再添加（详见 design doc §2.3）。
+    """
+
+def get_structure(c: CZSC, di: builtins.int = 1) -> dict:
+    r"""
+    Native BI-proxy structures, role operands, stages and MACD(12,26,9).
+    di is a current-list slice, not a historical snapshot. All times are natural
+    endpoints/cutoffs; first-known times belong to the caller's prefix observer.
+    """
+
+def get_structure_state(c: CZSC, di: builtins.int = 1) -> dict:
+    r"""
+    Lightweight native stages, unchanged role references and candidate/core identities.
+    Same evaluation as get_structure, without all-BI power or per-bar MACD output.
+    di slices the current list; first-known times belong to the caller's prefix observer.
     """
 
 def get_zs_seq(bis: typing.Sequence[BI]) -> builtins.list[ZS]:
