@@ -563,6 +563,15 @@ pub fn evaluate_second_like(
         return miss("invalid_operands");
     }
     let parent = evaluate_second(c, *start + 1, direction, macd, false);
+    if parent.status == "unavailable" {
+        // Unknown parent material is not evidence that the finite chain is
+        // absent. Preserve its diagnosis without granting a child reference.
+        return Evaluation {
+            kind: PointKind::SecondLike,
+            point: None,
+            ..parent
+        };
+    }
     if !parent.confirmed() {
         return miss("no_direct_b2_parent");
     }

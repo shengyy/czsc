@@ -4,10 +4,10 @@
 ## 本机验收摘要
 
 - 本批只施工 CZSC 上游；canonical 几何 owner 的 `analyze/utils.rs` 与 `e864cfb` 完全相同（SHA-256 `cbae6d14ef9ba9ae9b79acb56f3b82e0721b73049ab20720ef618adc30ae3af5`）。
-- 含轻量补充的最终回归：Rust facade/core/signals/trader 250 项通过；安装优化 wheel 后的全部 `tests/unit` 284 项通过。原批 249/283 项保留通过。旧基线的 2 项预期 RED 分别隔离经验笔数门与 MA 唯一阻断；补充 API 在旧 wheel 上另有 1 项预期 RED（接口不存在），最终均 GREEN。
+- 轻量补充冻结提交 `ed6b005` 的回归：Rust facade/core/signals/trader 250 项通过；安装优化 wheel 后的全部 `tests/unit` 284 项通过。原批 249/283 项保留通过。旧基线的 2 项预期 RED 分别隔离经验笔数门与 MA 唯一阻断；补充 API 在旧 wheel 上另有 1 项预期 RED（接口不存在），该轮最终均 GREEN。后续审查 A 修复与最终产物见下方专节。
 - 独立 TA-Lib 0.8.3：7,320 根 mock / 230 个快照，预热 mask 一致，最大误差 `8.53e-14`。
 - 原批 30 分钟 mock 的完整 snapshot（含序列化）抽样 P50 约 2.56 ms / P95 约 3.53 ms，末次 JSON 147,137 bytes。补充已实测日线逐 K：light `update + read` P50 1.03–1.04 ms / P95 1.26–1.28 ms，full P50 1.91–1.97 ms / P95 2.21–2.36 ms；每轮累计 JSON 减少约 94.3%。样本、调用数、字节格式和局限见下方测量表，不代表全市场预算已过。
-- 构建：`target/wheels-release/czsc-1.0.1+ashare.20261029-cp310-abi3-macosx_11_0_arm64.whl`。独立环境：本树 `.venv`、`target/chan-native`；下游按最终 Git commit 锁定，不能采用本地路径依赖。
+- 轻量轮构建在 `target/wheels-release/` 保留；审查 A 最终修复产物在 `target/wheels-review-a/czsc-1.0.1+ashare.20261029-cp310-abi3-macosx_11_0_arm64.whl`，最终 commit/SHA-256 以 `target/acceptance/review-a-acceptance.json` 为准。独立环境：本树 `.venv`、`target/chan-native`；下游按最终 Git commit 锁定，不能采用本地路径依赖。
 - 完整样例：`target/acceptance/mock-structure-seed7-prefix982.json`；该 mock 固定 `seed=7, min_bi_len=6, max_bi_num=50`，展示 `second_like/Down/confirmed_valid`、有限 B2 父链、新核 `[87.76, 91.23]` 和当前回试。`tests/__init__.py` 的默认笔长为 7，冻结样例显式固定 6，避免隐藏环境改变材料。
 - 原批证据：`target/acceptance/{rust-tests.log,python-wheel-tests.log,expected-red-baseline.log,native-oracle-release.json,stub-gen.log,rustfmt.log,lint.log}`。无范围外顺手修复；缓存精度和旧引用解码是本批一致性所需修复。未运行真实 QMT、付费模型回放或自然行情全池验收。
 - 轻量补充证据另存 `target/acceptance/light-*`，保留原批日志/样例；`light-rust-tests.log`、`light-python-wheel-tests.log`、`light-daily-prefix-benchmark.json` 对应最终回归/测量，`light-before-prefix-digest.json` 和 `light-frozen-full-parity.json` 证明补充前后同源状态与冻结全量样例一致。
@@ -78,6 +78,8 @@ The separate typed view keeps the original Rust `StructureSnapshot` fields and P
 ### Stages and operand identity
 
 Each `results[]` item has `kind` (`first`, `second`, `third`, `second_like`), `direction` (`Down` buy side, `Up` sell side), `status`, `reason`, and `reference`. Eligible statuses are **only** `confirmed_valid` and `forming_retest`. `no_match` includes missing structural relationships with a reason; `unavailable` is indeterminate numerical/coverage material. A rejected evaluation can retain its operands for diagnosis; the caller must not treat a non-null reference as eligibility.
+
+For `second_like`, an `unavailable` direct B2 parent propagates its exact status/reason to the child, with no child reference. A known nonmatching parent still gives `no_match/no_direct_b2_parent`. This distinction applies identically to both public views; it does not make unknown material eligible or create a new state type.
 
 A result reference includes:
 
@@ -166,7 +168,7 @@ uv pip install --python .venv/bin/python TA-Lib==0.8.3
 
 `TA-Lib` is an isolated test oracle only, not a runtime dependency. The wheel is macOS arm64; the package still requires Python >=3.14 even though PyO3's extension ABI floor is cp310. Linux consumers must build the same Git commit on their platform.
 
-## Daily prefix measurement (light supplement)
+## Daily prefix measurement (light supplement, frozen ed6b005)
 
 Measured through the installed optimized wheel on macOS arm64 / Python 3.14.7 / wbt 0.2.1. The stable `czsc.mock.generate_symbol_kines("000001", "日线", "20100101", "20250101", seed=7)` sample has **3,914 bars**, frame SHA-256 `1356a23dec5f817459c1a4fbb23902246946c517d8b4621a3d3319326c92d2be`. Each run creates its own analyzer (`max_bi_num=50, min_bi_len=6`), warms up with 200 bars and then makes **3,714 sequential update calls and 3,714 read calls**, without sampling/skipping prefixes. Order is full→light, then light→full. Four runs total 14,856 measured update/read pairs, plus four final full-package reads outside the timer. Final retained material is 782 raw bars / 50 BIs.
 
@@ -189,6 +191,30 @@ All four runs have the same ordered prefix-state digest `b6a302bda4eed1dff0b46f6
 Use `target/acceptance/light-daily-example.json` for a final daily light view and `light-mock-seed7-prefix982.json` for the finite second-like reference example. The benchmark script contains no EMA, signal or geometry implementation.
 
 Limit: this is a single local serial mock stream, not natural quotes, a 4,000-symbol pool, concurrent workers, the application's observer/storage, or a premarket wall-clock acceptance test. Light still spends about 1 ms per read here computing qualification MACD and canonical relations/references. That remaining cost has not been declared irreducible or extrapolated into a full-pool pass; application budget validation must measure its actual integration. No signal-policy shortcut or approximate long-lived cache was introduced to improve the numbers.
+
+## Independent review A: parent availability repair
+
+The review froze `a60fc7d79554a9958bee4100d916de7fab1c0e19`; its P2 also reproduces on the later light-view commit `ed6b005ae61d2856ba6bf4e2826bbfd38aaa4bcd`. With the public seed-7 F30 mock prefix of 982 bars, `min_bi_len=6, max_bi_num=25`, `second` at `di=5` is `unavailable/warmup` but the old `second_like` at `di=1` incorrectly says `no_match/no_direct_b2_parent`. Caps 30/50 confirm both; OHLC reflection reproduces the same issue on the sell side. This is an availability-diagnosis error, not evidence of an erroneous trade.
+
+The repair adds one branch to `utils/bs.rs::evaluate_second_like`: propagate the unavailable parent's exact state/reason while retaining child kind/direction and `point=None`. No qualified child operands are asserted. Determinate absence still returns the previous `no_match` diagnosis. It changes no canonical geometry, numerical algorithm, eligible signal rules, Python binding, schema, cache or lightweight projection. Both full/light reads still reach the same evaluator.
+
+Regression tests cover buy/sell `warmup`, `missing_coverage`, `zero_entry_area`, determinate no-parent cases, public CXT value parity at `di=1/5/7`, both views, parent-reference removal/restoration and same-dt revised/cold/restored prefixes. The warmup regression uses public native construction only. Missing-row/zero-area tests deliberately inject material faults into native snapshots while keeping BI geometry, and do not claim those injected snapshots are natural quotes. Before the fix: 1 native test and 6 parametrized wheel tests are expected RED; the determinate controls pass.
+
+Final scoped results: **67 Rust signals tests + 8 trader reference/compatibility tests passed; 57 installed-release-wheel Python tests passed**, including all 14 new review cases. Formatting and diff checks pass. Re-running the independent public reproduction now gives `unavailable/warmup` for both parent and child at cap 25; cap 30/50 buy/sell controls stay confirmed. The prior complete confirmed prefix-982 snapshot remains exactly equal. The final native extension, re-export file and stub are read back against the wheel bytes in the acceptance manifest; tests import the isolated installed package with `-I`, not the source stub.
+
+The unreleased Cargo version remains `1.0.1+ashare.20261029`; no dependency, lock or stub signature changes are needed. The review-fix release wheel is kept separately at `target/wheels-review-a/czsc-1.0.1+ashare.20261029-cp310-abi3-macosx_11_0_arm64.whl` so the light-performance wheel remains available. Use **`target/acceptance/review-a-acceptance.json` for the final repair commit, wheel SHA-256 and verified test counts**, superseding the delivery pointer in `light-acceptance.json`. Pin that exact commit downstream; the unchanged local version alone does not identify this repair. The preceding performance table remains evidence for frozen `ed6b005`, not a new performance or full-pool claim.
+
+From this checkout, using its existing isolated `.venv` / `target/chan-native`:
+
+```sh
+PYO3_PYTHON=/opt/homebrew/opt/python@3.14/bin/python3.14 CARGO_TARGET_DIR="$PWD/target/chan-native" cargo test -p czsc-signals --lib --tests
+PYO3_PYTHON=/opt/homebrew/opt/python@3.14/bin/python3.14 CARGO_TARGET_DIR="$PWD/target/chan-native" cargo test -p czsc-trader --test test_signal_references --test test_reference_cache_serde
+PYO3_PYTHON=/opt/homebrew/opt/python@3.14/bin/python3.14 CARGO_TARGET_DIR="$PWD/target/chan-native" .venv/bin/maturin build --release --out target/wheels-review-a
+uv pip install --python .venv/bin/python --reinstall --no-deps target/wheels-review-a/czsc-1.0.1+ashare.20261029-cp310-abi3-macosx_11_0_arm64.whl
+.venv/bin/python -I -m pytest --import-mode=importlib tests/unit/test_second_like_availability.py tests/unit/test_native_structure.py tests/unit/test_signal_references.py tests/unit/test_czsc_tail_revision.py tests/unit/test_joint_macd_owner.py tests/unit/test_structure_analysis_api.py
+```
+
+Evidence is in `target/acceptance/review-a-*`; previous acceptance artifacts are retained. This focused repair does not rerun natural-market, full-pool, production or model-paid acceptance; prior complete-suite results remain explicitly tied to their earlier commits.
 
 ## Code organization and remaining boundaries
 

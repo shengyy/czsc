@@ -13,6 +13,7 @@
 
 - 原生 `get_structure` 提供 BI 代理结构阶段、末两合法 canonical 核、1/2 笔尾候选、NewBar 尾段、角色引用和逐 bar/逐笔 MACD；Python 纯透传。
 - 原生 `get_structure_state` 供逐 K 阶段观察，与全量接口共用求值和原有引用，跳过全 BI power 及逐 bar MACD 投影。完整接口及 CXT 政策不变；附日线逐 K `update + read` 对照基准。
+- 独立审查 A 修复：类二直接父链为 `unavailable` 时保留原状态/原因（含预热、缺覆盖、零进入面积），不再误报 `no_match/no_direct_b2_parent`。确定性无父链仍无匹配，未知父链不生成类二引用或确认。
 - 已审 first/second/third 五入口共享同一求值：一类改同核 MACD 面积，二/三类删除 MA 与经验笔数否决；逐 raw 守界、固定锚、forming/confirmed 分离。
 - MACD 缓存移除尾窗重新播种，精确读取当前保留输入；缺预热/覆盖/非有限与零进入面积显式不可判定。
 - 信号键保留，MA 参数仅保留键兼容。信号值语义有变化；升级后须从 raw 重建热状态。引用新增字段兼容旧 JSON/MessagePack，版本源仍为 Cargo。

@@ -347,12 +347,12 @@ fn second_like_requires_the_new_core_seed_to_be_the_concrete_b2_retest() {
         assert_eq!(point.parent_chain, Some([4, 5, 6]));
         assert_eq!(point.departure, 9);
         assert!(point.macd_comparison.is_none());
-        // A generic higher low with no one-buy parent is not a second-like.
-        let mut no_parent = c.clone();
-        for b in &mut no_parent.bars_raw {
+        // Zero entering area cannot establish the one-buy parent.
+        let mut zero_area = c.clone();
+        for b in &mut zero_area.bars_raw {
             b.close = 20.;
         }
-        assert!(!evaluate_second_like(&no_parent, 11, dir, &native_macd(&no_parent)).confirmed());
+        assert!(!evaluate_second_like(&zero_area, 11, dir, &native_macd(&zero_area)).confirmed());
         // Never continue the tag into arbitrary later retests of that core.
         assert!(!evaluate_second_like(&c, 9, dir, &native_macd(&c)).confirmed());
     }
@@ -457,4 +457,100 @@ fn lightweight_prefix_and_same_dt_revision_preserve_exact_state() {
         c.bars_raw.len() < bars.len(),
         "exercise actual retained history"
     );
+}
+
+#[test]
+fn second_like_preserves_unavailable_parent_and_clears_public_parent_reference() {
+    for buy in [true, false] {
+        let prices: Vec<_> = [20., 10., 15., 11., 14., 9., 18., 16., 20., 17., 19., 18.]
+            .into_iter()
+            .map(|p| if buy { p } else { 40. - p })
+            .collect();
+        let original = powered_structure(&prices);
+        let direction = if buy { Direction::Down } else { Direction::Up };
+        for reason in ["warmup", "missing_coverage", "zero_entry_area"] {
+            let mut cache = TaCache::default();
+            let (key, label) = evaluate(&original, "cxt_second_bs_V230320", 5, &mut cache);
+            assert!(label.starts_with(if buy { "二买" } else { "二卖" }));
+            let reference = cache.signal_references[&key].clone();
+            let mut c = original.clone();
+            match reason {
+                "warmup" => {
+                    c.bars_raw.drain(..20);
+                }
+                "missing_coverage" => {
+                    c.bars_raw.remove(42);
+                }
+                "zero_entry_area" => {
+                    for b in &mut c.bars_raw {
+                        b.close = 20.;
+                    }
+                }
+                _ => unreachable!(),
+            }
+            let macd = native_macd(&c);
+            let parent = evaluate_second(&c, 7, direction, &macd, false);
+            assert_eq!(
+                (parent.status, parent.reason),
+                ("unavailable", Some(reason))
+            );
+            let child = evaluate_second_like(&c, 11, direction, &macd);
+            assert_eq!(
+                (child.status, child.reason),
+                (parent.status, parent.reason),
+                "buy={buy}, {reason}"
+            );
+            assert_eq!(child.kind, PointKind::SecondLike);
+            assert!(
+                child.point.is_none(),
+                "unqualified parent cannot grant a child reference"
+            );
+            let snapshot = checked_structure(&c, 1);
+            let result = snapshot
+                .results
+                .iter()
+                .find(|r| r.kind == PointKind::SecondLike && r.direction == direction)
+                .unwrap();
+            assert_eq!(
+                (result.status.as_str(), result.reason.as_deref()),
+                (parent.status, parent.reason)
+            );
+            assert!(result.reference.is_none());
+            assert!(
+                evaluate(&c, "cxt_second_bs_V230320", 5, &mut cache)
+                    .1
+                    .starts_with("其他")
+            );
+            assert!(!cache.signal_references.contains_key(&key));
+            evaluate(&original, "cxt_second_bs_V230320", 5, &mut cache);
+            assert_eq!(cache.signal_references[&key], reference);
+        }
+    }
+}
+
+#[test]
+fn second_like_determinate_missing_parent_remains_no_match() {
+    for buy in [true, false] {
+        // The candidate parent first leg has no new extreme, even though the
+        // later canonical core has the same direct-parent position relation.
+        let prices: Vec<_> = [20., 10., 15., 11., 14., 10.5, 18., 16., 20., 17., 19., 18.]
+            .into_iter()
+            .map(|p| if buy { p } else { 40. - p })
+            .collect();
+        let c = powered_structure(&prices);
+        let direction = if buy { Direction::Down } else { Direction::Up };
+        let macd = native_macd(&c);
+        let parent = evaluate_second(&c, 7, direction, &macd, false);
+        assert_eq!(
+            (parent.status, parent.reason),
+            ("no_match", Some("no_first_point_anchor"))
+        );
+        let child = evaluate_second_like(&c, 11, direction, &macd);
+        assert_eq!(
+            (child.status, child.reason),
+            ("no_match", Some("no_direct_b2_parent"))
+        );
+        assert!(child.point.is_none());
+        checked_structure(&c, 1);
+    }
 }
