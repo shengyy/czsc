@@ -404,6 +404,16 @@ class CzscSignals:
         返回原始信号配置
         """
     def __new__(cls, bg: BarGenerator, signals_config: list) -> CzscSignals: ...
+    def structure_state(self, freq: builtins.str, di: builtins.int = 1) -> dict:
+        r"""
+        Read the same state as get_structure_state(kas[freq], di), without
+        cloning kas. Exact frequency key; unavailable engine raises ValueError.
+        """
+    def last_bi(self, freq: builtins.str) -> typing.Optional[BI]:
+        r"""
+        Return only the last native BI copy, or None when the engine has no BI.
+        Includes the existing unfinished last BI; does not qualify a signal.
+        """
     def update_signals(self, bar: RawBar) -> None:
         r"""
         更新信号。

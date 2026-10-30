@@ -1,5 +1,6 @@
 use czsc_core::analyze::CZSC;
 use czsc_core::objects::bar::RawBar;
+use czsc_core::objects::bi::BI;
 use czsc_core::utils::common::create_naive_pandas_timestamp;
 use czsc_trader::czsc_signals::CzscSignals;
 use czsc_trader::sig_parse::SignalConfig;
@@ -172,6 +173,26 @@ impl PyCzscSignals {
     #[getter]
     fn kas(&self) -> PyResult<HashMap<String, CZSC>> {
         Ok(self.inner.kas.clone().into_iter().collect())
+    }
+
+    /// Read the same state as get_structure_state(kas[freq], di), without
+    /// cloning kas. Exact frequency key; unavailable engine raises ValueError.
+    #[pyo3(signature = (freq, di=1))]
+    fn structure_state(&self, py: Python<'_>, freq: &str, di: usize) -> PyResult<Py<PyDict>> {
+        let state = self
+            .inner
+            .structure_state(freq, di)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        crate::structure::to_dict(py, &state)
+    }
+
+    /// Return only the last native BI copy, or None when the engine has no BI.
+    /// Includes the existing unfinished last BI; does not qualify a signal.
+    fn last_bi(&self, freq: &str) -> PyResult<Option<BI>> {
+        self.inner
+            .last_bi(freq)
+            .map(|bi| bi.cloned())
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// 返回所有周期字符串列表

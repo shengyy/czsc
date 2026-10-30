@@ -72,6 +72,39 @@ fn refs(c: &CzscSignals) -> Value {
     serde_json::to_value(c.signal_references()).unwrap()
 }
 
+#[test]
+fn borrowed_structure_reads_match_the_existing_owner_without_mutation() {
+    let input = bars();
+    let mut c = engine(&input[..20]);
+    let cfg = configs();
+    assert!(c.structure_state("missing", 1).is_err());
+    assert!(c.last_bi("missing").is_err());
+    let mut seen_none = false;
+    let mut seen_bi = false;
+    for bar in &input[20..400] {
+        c.update_signals(bar, &cfg).unwrap();
+        let before = rmp_serde::to_vec_named(&c).unwrap();
+        for (freq, native) in &c.kas {
+            for di in [0, 1, 2] {
+                assert_eq!(
+                    c.structure_state(freq, di).unwrap(),
+                    czsc_signals::structure::get_structure_state(native, di)
+                );
+            }
+            match (c.last_bi(freq).unwrap(), native.bi_list.last()) {
+                (Some(actual), Some(expected)) => {
+                    assert!(std::ptr::eq(actual, expected));
+                    seen_bi = true;
+                }
+                (None, None) => seen_none = true,
+                _ => panic!("last BI mismatch"),
+            }
+        }
+        assert_eq!(rmp_serde::to_vec_named(&c).unwrap(), before);
+    }
+    assert!(seen_none && seen_bi);
+}
+
 fn hit(input: &[RawBar], cfg: &[SignalConfig]) -> (CzscSignals, usize) {
     let mut c = engine(&input[..300]);
     for (i, bar) in input.iter().enumerate().skip(300) {

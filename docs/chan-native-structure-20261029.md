@@ -147,7 +147,7 @@ The old long-series cache shortcut reseeded only a trailing window and rewrote f
 
 Existing `kind, window, overlap_bis, last_bi, zd, zg` remain. An appended `structure` contains the same evaluator's role-bearing result and stage. First/second signals now capture references too. A miss removes the key; unchanged label values still refresh changed operands. Old JSON/positional MessagePack snapshots decode with `structure=null` and missing endpoint prices null. Rebuild old hot state from raw input when adopting the new contract; decoding compatibility is not evidence that old cached labels have new semantics.
 
-The current Cargo workspace version is `1.0.1+ashare.20261030` for the endpoint-power field and borrowed centre evaluation; Cargo.lock follows that single version owner. The public Python signatures are unchanged. `uv.lock` contains a dynamic editable workspace node and has no duplicated CZSC version to edit. Consumers should pin the delivered Git commit as well as record the engine version. The 20261029 artifact names and acceptance results below describe the previous batch, not this build.
+The current Cargo workspace version is `1.0.1+ashare.20261030.1`, adding the two read-only CzscSignals methods documented in [public API](public_api.md) to the 20261030 endpoint-power/borrowed-centre batch. Cargo.lock follows that single version owner. Existing Python signatures are unchanged. `uv.lock` contains a dynamic editable workspace node and has no duplicated CZSC version to edit. Consumers should pin the delivered Git commit as well as record the engine version. The 20261029 artifact names and acceptance results below describe the previous batch, not this build.
 
 ## Validation and assumptions
 
