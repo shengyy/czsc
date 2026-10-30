@@ -7,7 +7,7 @@ use crate::objects::{
     freq::Freq,
     fx::{FX, FXBuilder},
     mark::Mark,
-    zs::ZS,
+    zs::{ZS, ZsView},
 };
 use anyhow::Context;
 use chrono::DateTime;
@@ -40,17 +40,27 @@ pub struct GapInfo {
 /// 各组可能不连续；尾组可不足三笔。
 /// 这里不递归识别更高级别的中枢扩张。
 pub fn get_zs_seq(bis: &[BI]) -> Vec<ZS> {
+    get_zs_seq_view(bis)
+        .into_iter()
+        .map(|z| ZS::new(z.bis.to_vec()))
+        .collect()
+}
+
+/// The single canonical partition, borrowing members until an owned public
+/// ZS is requested. Qualification and references consume these same views.
+#[doc(hidden)]
+pub fn get_zs_seq_view(bis: &[BI]) -> Vec<ZsView<'_>> {
     let mut zs_list = Vec::new();
     let mut pending_start = 1;
-    let mut active: Option<ZS> = None;
+    let mut active: Option<(usize, ZsView<'_>)> = None;
     for (index, bi) in bis.iter().enumerate().skip(1) {
-        let Some(last_zs) = active.take() else {
+        let Some((start, last_zs)) = active.take() else {
             if index + 1 - pending_start < 3 {
                 continue;
             }
-            let candidate = ZS::new(bis[pending_start..=index].to_vec());
+            let candidate = ZsView::new(&bis[pending_start..=index]);
             if candidate.is_valid() {
-                active = Some(candidate);
+                active = Some((pending_start, candidate));
             } else {
                 pending_start += 2;
             }
@@ -63,7 +73,7 @@ pub fn get_zs_seq(bis: &[BI]) -> Vec<ZS> {
             // Reassign only the last two members after confirmation by this
             // outside retest. Never steal one of the old core's initial BIs.
             if last_zs.bis.len() >= 5 {
-                let candidate = ZS::new(bis[index - 2..=index].to_vec());
+                let candidate = ZsView::new(&bis[index - 2..=index]);
                 let outside = if bi.direction == Direction::Up {
                     candidate.zg < last_zs.zd
                 } else {
@@ -71,23 +81,21 @@ pub fn get_zs_seq(bis: &[BI]) -> Vec<ZS> {
                 };
                 if candidate.is_valid() && outside {
                     let keep = last_zs.bis.len() - 2;
-                    zs_list.push(ZS::new(last_zs.bis[..keep].to_vec()));
-                    active = Some(candidate);
+                    zs_list.push(ZsView::new(&last_zs.bis[..keep]));
+                    active = Some((index - 2, candidate));
                     continue;
                 }
             }
             zs_list.push(last_zs);
             pending_start = index;
         } else {
-            let mut new_bis = last_zs.bis;
-            new_bis.push(bi.clone());
-            active = Some(ZS::new(new_bis));
+            active = Some((start, ZsView::new(&bis[start..=index])));
         }
     }
-    if let Some(zs) = active {
+    if let Some((_, zs)) = active {
         zs_list.push(zs);
     } else if pending_start < bis.len() {
-        zs_list.push(ZS::new(bis[pending_start..].to_vec()));
+        zs_list.push(ZsView::new(&bis[pending_start..]));
     }
     zs_list
 }

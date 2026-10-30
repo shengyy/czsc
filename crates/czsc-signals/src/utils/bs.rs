@@ -5,8 +5,13 @@ use super::{
     macd::native_macd,
 };
 use czsc_core::{
-    analyze::{CZSC, utils::get_zs_seq},
-    objects::{bi::BI, direction::Direction, state::MacdSeries, zs::ZS},
+    analyze::{CZSC, utils::get_zs_seq_view},
+    objects::{
+        bi::BI,
+        direction::Direction,
+        state::MacdSeries,
+        zs::{ZS, ZsView},
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +20,14 @@ pub fn prefix_end(c: &CZSC, di: usize) -> Option<usize> {
 }
 
 pub fn valid_centres(bis: &[BI]) -> Vec<(usize, ZS)> {
-    get_zs_seq(bis)
+    valid_centres_view(bis)
+        .into_iter()
+        .map(|(start, z)| (start, ZS::new(z.bis.to_vec())))
+        .collect()
+}
+
+fn valid_centres_view(bis: &[BI]) -> Vec<(usize, ZsView<'_>)> {
+    get_zs_seq_view(bis)
         .into_iter()
         .filter_map(|zs| {
             if zs.bis.len() < 3
@@ -210,7 +222,7 @@ pub fn evaluate_first(c: &CZSC, end: usize, direction: Direction, macd: &MacdSer
     if last.direction != direction {
         return miss("direction");
     }
-    let centres = valid_centres(&c.bi_list[..end - 1]);
+    let centres = valid_centres_view(&c.bi_list[..end - 1]);
     let Some((start, zs)) = centres.last() else {
         return miss("no_valid_centre");
     };
@@ -436,7 +448,7 @@ pub fn evaluate_third(c: &CZSC, end: usize, direction: Direction, forming: bool)
         return miss("missing_material");
     }
     let finished = c.finished_bis_slice().len().min(end);
-    let centres = valid_centres(&c.bi_list[..finished]);
+    let centres = valid_centres_view(&c.bi_list[..finished]);
     let Some((start, zs)) = centres.last() else {
         return miss("no_valid_centre");
     };
@@ -549,7 +561,7 @@ pub fn evaluate_second_like(
     if end == 0 || end > c.bi_list.len() {
         return miss("missing_material");
     }
-    let centres = valid_centres(&c.bi_list[..c.finished_bis_slice().len().min(end)]);
+    let centres = valid_centres_view(&c.bi_list[..c.finished_bis_slice().len().min(end)]);
     let Some((start, zs)) = centres.last() else {
         return miss("no_valid_centre");
     };

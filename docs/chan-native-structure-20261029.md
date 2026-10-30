@@ -49,6 +49,8 @@ For per-bar first-known observation use `czsc.get_structure_state(c, di=1)` / Ru
 
 The light view contains exactly `basis, di, as_of, status, previous_zs, latest_finished_zs, zs_candidate, candidate_stroke, results`. Every nested field equals the corresponding full field, including rejected operands, missing reasons and the MACD comparison required to qualify first points/parents. It omits `bis`, `last_signal_bi`, `ubi_newbar_count`, `zs_relation`, `candidate_power`, `candidate_endpoint_power`, `macd`. The light path neither computes all-BI/candidate power nor constructs/serializes the per-bar `MacdFacts` projection. Qualification still computes the current retained-input MACD and the needed comparison operands. There is no approximate cache, extra state store, event engine or durable identity.
 
+Canonical partitioning and ZS geometry have one borrowed internal view. Public `get_zs_seq` materializes owned ZS members only at its return boundary; native signal qualification, structure stages and role references read the same borrowed members without copying their raw-bar trees. Forming evaluations are skipped only when their result would be discarded in favor of the confirmed evaluation. Neither optimization skips input prefixes, changes MACD qualification, or introduces retained computation state.
+
 ```python
 for bar in received_bars:
     c.update(bar)

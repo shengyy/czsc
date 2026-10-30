@@ -9,7 +9,7 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use czsc_core::{
-    analyze::{CZSC, candidate::CandidateStroke, utils::get_zs_seq},
+    analyze::{CZSC, candidate::CandidateStroke, utils::get_zs_seq_view},
     objects::{direction::Direction, state::MacdSeries},
 };
 use serde::{Deserialize, Serialize};
@@ -167,7 +167,7 @@ fn evaluate_structure(c: &CZSC, di: usize, macd: &MacdSeries) -> StructureState 
     let end = bs::prefix_end(c, di);
     let n = end.unwrap_or(0);
     let finished = c.finished_bis_slice().len().min(n);
-    let zones = get_zs_seq(&c.bi_list[..finished]);
+    let zones = get_zs_seq_view(&c.bi_list[..finished]);
     let mut valid = Vec::new();
     let mut zs_candidate = None;
     for z in zones {
@@ -205,12 +205,13 @@ fn evaluate_structure(c: &CZSC, di: usize, macd: &MacdSeries) -> StructureState 
                     }
                 };
                 let confirmed = eval(false);
-                let forming = (di == 1).then(|| eval(true));
                 evals.push(
                     if confirmed.confirmed() || c.bi_list[end - 1].direction == dir {
                         confirmed
+                    } else if di == 1 {
+                        eval(true)
                     } else {
-                        forming.unwrap_or(confirmed)
+                        confirmed
                     },
                 );
             }
