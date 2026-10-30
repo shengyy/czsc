@@ -16,6 +16,7 @@
 ### Changed
 
 - Native structure/signal evaluation borrows the canonical centre members instead of repeatedly copying their BI, FX and raw-bar trees. Public `get_zs_seq` still returns owned values from the same partition and geometry owner. Full/light evaluation also skips forming second/third-point computations whose results would be discarded; stages, numerical values and signal qualification are unchanged.
+- The local fork metadata is `1.0.1+ashare.20261030` for the endpoint-power field and borrowed evaluation. Cargo remains the version owner; consumers should also pin the exact Git revision. No release or deployment is implied by this version change.
 
 ### 1.0.1+ashare.20261029（本地合同，未发布）
 

@@ -145,6 +145,8 @@ reference = cs.signal_references.get(key) # 无当前命中引用时为 None
 
 `1.0.1+ashare.20261029` 保留 20261028 canonical 几何，替换一类力度比较并取消二/三类 MA 和经验笔数否决。信号键保留但命中集合变化。升级须从 K 线重建，不能复用旧热状态；完整语义见 [native structure 合同](chan-native-structure-20261029.md)。
 
+`1.0.1+ashare.20261030` 在该合同上增加 `candidate_endpoint_power`，并用同源借用视图消除内部 BI 深拷贝；既有字段数值和信号资格不变。版本由 Cargo workspace 单点声明，Python metadata 跟随，使用方仍应精确锁定 Git revision。
+
 `ReferenceBi` 保留 `position, direction, sdt, edt, high, low, finished`，追加可空的 `start_price/end_price`。旧快照缺价格时是 null，不填 0。legacy overlap/last 的 position 相对窗口；`structure` 角色引用的位置相对当前完整列表。自然端点、方向、价格和核心成员/边界才可用于操作数身份，列表位置不是持久 ID。
 
 `finished` 仅表示属于当前 `finished_bis`，不是不可重画确认。时间沿用原生 `DateTime<Utc>` 的 RFC3339 序列化，不添加市场收线转换。端点时间不是首次可知或确认时刻。

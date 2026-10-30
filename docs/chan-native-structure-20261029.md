@@ -1,7 +1,13 @@
 # Native BI-proxy structure contract (2026-10-29)
 
 
-## 本机验收摘要
+The 20261030 supplement adds endpoint-bounded candidate power and removes
+internal canonical-member copies, with workspace version
+`1.0.1+ashare.20261030`. Existing numerical fields, canonical membership and
+signal qualification are unchanged. The 20261029 build and acceptance
+records below remain historical evidence for that earlier batch.
+
+## 20261029 本机验收摘要（历史批次）
 
 - 本批只施工 CZSC 上游；canonical 几何 owner 的 `analyze/utils.rs` 与 `e864cfb` 完全相同（SHA-256 `cbae6d14ef9ba9ae9b79acb56f3b82e0721b73049ab20720ef618adc30ae3af5`）。
 - 轻量补充冻结提交 `ed6b005` 的回归：Rust facade/core/signals/trader 250 项通过；安装优化 wheel 后的全部 `tests/unit` 284 项通过。原批 249/283 项保留通过。旧基线的 2 项预期 RED 分别隔离经验笔数门与 MA 唯一阻断；补充 API 在旧 wheel 上另有 1 项预期 RED（接口不存在），该轮最终均 GREEN。后续审查 A 修复与最终产物见下方专节。
@@ -141,7 +147,7 @@ The old long-series cache shortcut reseeded only a trailing window and rewrote f
 
 Existing `kind, window, overlap_bis, last_bi, zd, zg` remain. An appended `structure` contains the same evaluator's role-bearing result and stage. First/second signals now capture references too. A miss removes the key; unchanged label values still refresh changed operands. Old JSON/positional MessagePack snapshots decode with `structure=null` and missing endpoint prices null. Rebuild old hot state from raw input when adopting the new contract; decoding compatibility is not evidence that old cached labels have new semantics.
 
-The Cargo workspace version is `1.0.1+ashare.20261029`; Cargo.lock and generated stub are synchronized. `uv.lock` contains a dynamic editable workspace node and has no duplicated CZSC version to edit (`uv lock --offline` remained unchanged). Consumers should pin the delivered Git commit, not a local checkout/path dependency.
+The current Cargo workspace version is `1.0.1+ashare.20261030` for the endpoint-power field and borrowed centre evaluation; Cargo.lock follows that single version owner. The public Python signatures are unchanged. `uv.lock` contains a dynamic editable workspace node and has no duplicated CZSC version to edit. Consumers should pin the delivered Git commit as well as record the engine version. The 20261029 artifact names and acceptance results below describe the previous batch, not this build.
 
 ## Validation and assumptions
 
