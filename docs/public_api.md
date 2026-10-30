@@ -119,6 +119,12 @@ facts = czsc.get_structure(c)            # 最终包需要时才读取全量原�
 
 自然端点/截止不代表确认时间；`di`、同 dt 订正、forming 和 `basis=bi_proxy` 语义与完整接口相同。基准脚本 `scripts/benchmark_structure_state.py` 用同一日线 mock 逐 K 对照两种读取，并核对所有前缀的阶段/引用摘要；它不是全市场吞吐验收。
 
+### CzscSignals 的只读结构访问
+
+从本地 fork `1.0.1+ashare.20261030.1` 起，`analysis.structure_state(freq, di=1)` 与 `czsc.get_structure_state(analysis.kas[freq], di)` 逐值相同，直接借用引擎调用同一原生 owner；Python 仍经原 serde 桥返回独立 dict，字段顺序不变。`analysis.last_bi(freq)` 返回原 `bi_list[-1]` 的原生 BI 副本，仅复制这一笔；无 BI 返回 None。它包含原生列表的未完成末笔，不授予成笔或交易资格。
+
+Rust 对应 `CzscSignals::structure_state(&self, freq: &str, di: usize) -> Result<StructureState, UtilsError>` 和 `last_bi(&self, freq: &str) -> Result<Option<&BI>, UtilsError>`。`freq` 使用 `kas` 的精确字符串键，缺周期两者都报错（Python 为 ValueError）；不能把缺引擎伪装成无笔。没有新增引擎状态、历史推进或缓存，原 `kas`、全量接口与序列化恢复合同保留。
+
 ### CzscSignals.signal_references
 
 Python：`from czsc import CzscSignals`，读取 `cs.signal_references`；Rust：

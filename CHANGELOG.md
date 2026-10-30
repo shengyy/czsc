@@ -11,12 +11,13 @@
 
 ### Added
 
+- In local fork `1.0.1+ashare.20261030.1`, `CzscSignals.structure_state(freq, di=1)` reads the existing native state owner without copying frequency engines. `last_bi(freq)` borrows the current last BI in Rust and returns only that BI copy in Python; missing frequencies are explicit errors and an engine with no BI returns null. Existing outputs, field order and snapshot state are unchanged.
 - Full native structure snapshots now include `candidate_endpoint_power` for `(anchor_at, end_price_at]`, alongside the unchanged candidate-to-`as_of` interval. Both reuse the same raw-interval/MACD owner; an available numerical interval does not confirm a stroke or grant a buy/sell signal. Python exposes the Rust field directly, and the lightweight view is unchanged.
 
 ### Changed
 
 - Native structure/signal evaluation borrows the canonical centre members instead of repeatedly copying their BI, FX and raw-bar trees. Public `get_zs_seq` still returns owned values from the same partition and geometry owner. Full/light evaluation also skips forming second/third-point computations whose results would be discarded; stages, numerical values and signal qualification are unchanged.
-- The local fork metadata is `1.0.1+ashare.20261030` for the endpoint-power field and borrowed evaluation. Cargo remains the version owner; consumers should also pin the exact Git revision. No release or deployment is implied by this version change.
+- The endpoint-power field and borrowed evaluation were introduced as local fork `1.0.1+ashare.20261030`. Cargo remains the version owner; consumers should also pin the exact Git revision. No release or deployment is implied by this version change.
 
 ### 1.0.1+ashare.20261029（本地合同，未发布）
 

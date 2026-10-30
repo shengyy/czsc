@@ -25,7 +25,7 @@ pub fn get_structure_state(py: Python<'_>, c: &CZSC, di: usize) -> PyResult<Py<P
     to_dict(py, &state)
 }
 
-fn to_dict(py: Python<'_>, value: &impl serde::Serialize) -> PyResult<Py<PyDict>> {
+pub(crate) fn to_dict(py: Python<'_>, value: &impl serde::Serialize) -> PyResult<Py<PyDict>> {
     let json = serde_json::to_string(value)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
     Ok(py

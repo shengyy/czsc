@@ -3,9 +3,11 @@ use crate::engine_v2::compiler::CompiledSignalPlanV2;
 use crate::sig_parse::SignalConfig;
 use czsc_core::analyze::{CZSC, resolve_max_bi_num, resolve_min_bi_len};
 use czsc_core::objects::bar::RawBar;
+use czsc_core::objects::bi::BI;
 use czsc_core::objects::signal::Signal;
 use czsc_signals::reference::SignalReference;
 use czsc_signals::registry;
+use czsc_signals::structure::{StructureState, get_structure_state};
 use czsc_signals::types::TaCache;
 use czsc_utils::bar_generator::BarGenerator;
 use czsc_utils::errors::UtilsError;
@@ -160,6 +162,24 @@ impl CzscSignals {
             .filter(|(key, _)| self.signal_map.contains_key(*key))
             .map(|(key, reference)| (key.clone(), reference))
             .collect()
+    }
+
+    /// Read the existing native state owner without cloning the frequency
+    /// engines. `freq` is an exact `kas` key; an absent engine is an error.
+    pub fn structure_state(&self, freq: &str, di: usize) -> Result<StructureState, UtilsError> {
+        Ok(get_structure_state(self.structure_engine(freq)?, di))
+    }
+
+    /// Borrow the actual last BI, including its existing unfinished semantics.
+    /// No BI is `None`; an absent frequency engine is an error.
+    pub fn last_bi(&self, freq: &str) -> Result<Option<&BI>, UtilsError> {
+        Ok(self.structure_engine(freq)?.bi_list.last())
+    }
+
+    fn structure_engine(&self, freq: &str) -> Result<&CZSC, UtilsError> {
+        self.kas.get(freq).ok_or_else(|| {
+            UtilsError::Unexpected(anyhow::anyhow!("CZSC frequency unavailable: {freq}"))
+        })
     }
 
     fn invalidate_signal_configuration(&mut self) -> Vec<String> {
