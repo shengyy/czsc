@@ -100,13 +100,15 @@ macd_bars = facts["macd"]["bars"]  # 原生 hist_scale=1，不在 Python 重算 
 
 `di` 仅切当前列表，`di!=1` 没有 forming。应用逐 K 观察记录首次可知；候选不冒充 BI，公开 `s` 信号仍只给 confirmed。完整字段、数值/预热和角色示例见 [合同](chan-native-structure-20261029.md)。
 
+`candidate_power` 保持 `(anchor_at, as_of]` 的候选累计数值；独立的 `candidate_endpoint_power` 给 `(anchor_at, end_price_at]`，结束在极值的真实 raw 归属时刻，而非 `end_newbar_at`。两者共用原生区间/MACD owner，仅在候选 available 且相应端点明确时提供；覆盖或预热不足沿用 `unavailable` 和空数值，不代表成笔、转折确认或买卖资格。
+
 `second_like` 的直接二类父链若为 `unavailable`，子结果原样保留该状态与原因，`reference=null`；只有可判定的父链不匹配才返回 `no_match/no_direct_b2_parent`。轻量视图同义，未知状态不授予确认资格。
 
 ### get_structure_state
 
 逐 K 阶段观察使用 Python `czsc.get_structure_state(c, di=1)` / Rust `czsc::get_structure_state(&c, 1)`（`StructureState`）。它和全量 `get_structure` 共用 `evaluate_structure`，直接返回 `basis, di, as_of, status, previous_zs, latest_finished_zs, zs_candidate, candidate_stroke, results`。这些字段及所有嵌套引用与同状态下全量输出完全一致；保留失败原因和判定所需 MACD 比较操作数。
 
-轻量路径不构建或序列化全 BI power、candidate power、逐 bar MACD、`last_signal_bi`、`ubi_newbar_count`、`zs_relation`；未先构造全量再过滤。资格所需原生 MACD 和 canonical 求值仍执行，没有新增缓存或历史状态。应用最终数值包按需再读 `get_structure`。
+轻量路径不构建或序列化全 BI power、两种 candidate power、逐 bar MACD、`last_signal_bi`、`ubi_newbar_count`、`zs_relation`；未先构造全量再过滤。资格所需原生 MACD 和 canonical 求值仍执行，没有新增缓存或历史状态。应用最终数值包按需再读 `get_structure`。
 
 ```python
 for bar in received_bars:

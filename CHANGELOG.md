@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Full native structure snapshots now include `candidate_endpoint_power` for `(anchor_at, end_price_at]`, alongside the unchanged candidate-to-`as_of` interval. Both reuse the same raw-interval/MACD owner; an available numerical interval does not confirm a stroke or grant a buy/sell signal. Python exposes the Rust field directly, and the lightweight view is unchanged.
+
 ### 1.0.1+ashare.20261029（本地合同，未发布）
 
 - 原生 `get_structure` 提供 BI 代理结构阶段、末两合法 canonical 核、1/2 笔尾候选、NewBar 尾段、角色引用和逐 bar/逐笔 MACD；Python 纯透传。

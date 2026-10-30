@@ -161,6 +161,98 @@ def test_per_bi_macd_is_exactly_the_published_raw_interval(bars):
     json.dumps(s, allow_nan=False)
 
 
+def test_candidate_endpoint_power_uses_its_raw_interval_and_preserves_cumulative_power(bars):
+    c = czsc.CZSC(bars[:100], max_bi_num=50, min_bi_len=6)
+    cutoffs, directions = set(), set()
+    for bar in bars[100:350]:
+        c.update(bar)
+        snapshot = read_structure(c)
+        candidate = snapshot["candidate_stroke"]
+        endpoint = snapshot["candidate_endpoint_power"]
+        if candidate["state"] != "available":
+            assert endpoint is None
+            continue
+        cumulative = snapshot["candidate_power"]
+        assert endpoint["sdt"] == cumulative["sdt"] == candidate["anchor_at"]
+        assert endpoint["edt"] == candidate["end_price_at"]
+        assert cumulative["edt"] == candidate["as_of"]
+        assert endpoint["interval"] == "(sdt,edt]"
+        raw = [b for b in c.bars_raw if timestamp(endpoint["sdt"]) < b.dt <= timestamp(endpoint["edt"])]
+        numerical = [b for b in snapshot["macd"]["bars"] if endpoint["sdt"] < b["dt"] <= endpoint["edt"]]
+        assert endpoint["sample_count"] == len(raw)
+        assert endpoint["volume"] == pytest.approx(sum(b.vol for b in raw))
+        assert endpoint["amount"] == pytest.approx(sum(b.amount for b in raw))
+        if endpoint["macd"]["status"] == "ready":
+            assert endpoint["macd"]["positive_area"] == pytest.approx(
+                sum(max(b["hist"], 0) for b in numerical), abs=1e-12
+            )
+            assert endpoint["macd"]["negative_area"] == pytest.approx(
+                sum(max(-b["hist"], 0) for b in numerical), abs=1e-12
+            )
+        else:
+            assert endpoint["macd"]["positive_area"] is endpoint["macd"]["negative_area"] is None
+        same = candidate["end_price_at"] == candidate["as_of"]
+        cutoffs.add(same)
+        directions.add(candidate["direction"])
+        if same:
+            assert endpoint == cumulative
+        else:
+            assert endpoint["sample_count"] < cumulative["sample_count"]
+    assert cutoffs == {False, True}
+    assert directions == {"Down", "Up"}
+
+
+def test_candidate_endpoint_raw_owner_coverage_and_absence(bars):
+    c = czsc.CZSC(bars[:101], max_bi_num=50, min_bi_len=6)
+    original = read_structure(c)
+    candidate = original["candidate_stroke"]
+    assert candidate["state"] == "available" and candidate["end_price_at"] < candidate["as_of"]
+    saved = c.__getstate__()
+    state = json.loads(saved)
+    end = next(b for b in state["bars_ubi"] if b["dt"] == candidate["end_newbar_at"])
+    # Deliberately retain the raw extreme inside a later-dated inclusion
+    # NewBar; the numerical endpoint follows the actual raw price owner.
+    end["dt"] = candidate["as_of"]
+    end["elements"].append(copy.deepcopy(state["bars_raw"][-1]))
+    c.__setstate__(json.dumps(state).encode())
+    included = read_structure(c)
+    assert included["candidate_stroke"]["end_newbar_at"] == candidate["as_of"]
+    assert included["candidate_endpoint_power"] == original["candidate_endpoint_power"]
+    assert included["candidate_power"] == original["candidate_power"]
+
+    state = json.loads(saved)
+    anchor_index = next(i for i, b in enumerate(state["bars_raw"]) if b["dt"] == candidate["anchor_at"])
+    state["bars_raw"] = state["bars_raw"][anchor_index - 1 :]
+    c.__setstate__(json.dumps(state).encode())
+    warmup = read_structure(c)["candidate_endpoint_power"]["macd"]
+    assert (warmup["status"], warmup["reason"]) == ("unavailable", "warmup")
+    assert warmup["positive_area"] is warmup["negative_area"] is None
+
+    state = json.loads(saved)
+    owner = state["bars_raw"][anchor_index - 1]
+    owner["high"] = candidate["anchor_price"]
+    newbar = copy.deepcopy(state["bi_list"][-1]["fx_b"]["elements"][0])
+    newbar["elements"] = [copy.deepcopy(owner)]
+    state["bi_list"][-1]["fx_b"]["elements"] = [newbar]
+    del state["bars_raw"][anchor_index]
+    c.__setstate__(json.dumps(state).encode())
+    missing = read_structure(c)
+    assert missing["candidate_stroke"]["state"] == "available"
+    power = missing["candidate_endpoint_power"]
+    assert (power["macd"]["status"], power["macd"]["reason"]) == ("unavailable", "missing_coverage")
+    assert power["macd"]["positive_area"] is power["macd"]["negative_area"] is None
+    assert power["volume"] is power["amount"] is None
+
+    state = json.loads(saved)
+    del state["bars_raw"][anchor_index]
+    c.__setstate__(json.dumps(state).encode())
+    assert read_structure(c)["candidate_endpoint_power"] is None
+    c.__setstate__(saved)
+    assert read_structure(c, di=2)["candidate_endpoint_power"] is None
+    assert read_structure(czsc.CZSC(bars[:1]))["candidate_endpoint_power"] is None
+    assert read_structure(c) == original
+
+
 def test_prefix_replay_revision_copy_and_detached_results(bars):
     c = czsc.CZSC(bars[:100], max_bi_num=8)
     for i, bar in enumerate(bars[100:500], 100):

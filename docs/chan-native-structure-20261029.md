@@ -47,7 +47,7 @@ The returned Python object is a detached `dict`; Rust returns `StructureSnapshot
 
 For per-bar first-known observation use `czsc.get_structure_state(c, di=1)` / Rust `czsc::get_structure_state(&c, 1) -> StructureState`. Both views call the same `structure.rs::evaluate_structure`; only `get_structure` subsequently constructs the full numerical projection. No signal qualification, reference semantics or existing full fields changed in this supplement.
 
-The light view contains exactly `basis, di, as_of, status, previous_zs, latest_finished_zs, zs_candidate, candidate_stroke, results`. Every nested field equals the corresponding full field, including rejected operands, missing reasons and the MACD comparison required to qualify first points/parents. It omits `bis`, `last_signal_bi`, `ubi_newbar_count`, `zs_relation`, `candidate_power`, `macd`. The light path neither computes all-BI/candidate power nor constructs/serializes the per-bar `MacdFacts` projection. Qualification still computes the current retained-input MACD and the needed comparison operands. There is no approximate cache, extra state store, event engine or durable identity.
+The light view contains exactly `basis, di, as_of, status, previous_zs, latest_finished_zs, zs_candidate, candidate_stroke, results`. Every nested field equals the corresponding full field, including rejected operands, missing reasons and the MACD comparison required to qualify first points/parents. It omits `bis`, `last_signal_bi`, `ubi_newbar_count`, `zs_relation`, `candidate_power`, `candidate_endpoint_power`, `macd`. The light path neither computes all-BI/candidate power nor constructs/serializes the per-bar `MacdFacts` projection. Qualification still computes the current retained-input MACD and the needed comparison operands. There is no approximate cache, extra state store, event engine or durable identity.
 
 ```python
 for bar in received_bars:
@@ -68,6 +68,7 @@ The separate typed view keeps the original Rust `StructureSnapshot` fields and P
 | `zs_relation` | `basis=bi_proxy`, separate `core` and `outer`: `above`, `below`, `touch`, `overlap`; null without two valid cores |
 | `candidate_stroke` | Native NewBar-derived moving segment, described below; never a BI |
 | `candidate_power` | `(anchor_at, as_of]` raw volume/amount/MACD values; numerical readiness does not complete a stroke |
+| `candidate_endpoint_power` | `(anchor_at, end_price_at]` raw volume/amount/MACD values, ending at the actual candidate extreme's raw owner; independent of the later observation cutoff and not a completed stroke |
 | `macd` | Full retained per-bar native sequence, parameters, scale, coverage and truncation flag |
 | `results` | First/second/third/second-like auxiliary results in each direction; status, reason and selected role operands |
 
@@ -101,6 +102,8 @@ Natural `sdt/edt`, direction, high/low, actual endpoint prices and complete core
 `candidate_stroke` has `state=available|none|unavailable`, optional reason, `kind=reverse|extension`, direction, `anchor_at`, `anchor_price`, `anchor_price_at`, `end_price`, `end_price_at`, `end_newbar_at`, `as_of`, and `role=first_retest_candidate|other`.
 
 The native analyzer supplies inclusion-processed NewBars and the last BI/FX. A reverse candidate excludes the entire anchor NewBar (including its merged raw constituents); an extension includes that centre. The boundary is selected from eligible NewBars with stable first-extreme ties. Only then is its actual raw price owner located. Raw extrema never substitute for `check_bi`. Missing real price ownership is `unavailable`.
+
+The full snapshot exposes two independent intervals from the same native MACD sequence. `candidate_power` continues through `as_of`, including raw bars received after the extreme. `candidate_endpoint_power` stops at `end_price_at`, not `end_newbar_at`; those times can differ after inclusion processing. Both use the existing `IntervalPower` shape and `(sdt,edt]` boundary. Each is null unless the candidate is `available` and its two explicit interval endpoints exist; insufficient retained coverage/warmup remains the interval owner's unavailable result with null areas. When `end_price_at == as_of` the two values are identical. Neither interval changes candidate geometry, signal stages, or confirmation/entry permission. The added optional endpoint field does not alter any existing snapshot field, and old serialized snapshots decode it as null.
 
 Forming B2 requires the specific first-point→native rebound chain; forming B3 requires a native departure of the current latest core. Both require a current reverse candidate, strict raw protection, and no new high/low beyond that fixed rebound/departure anchor. Pure breakouts, extensions, old BIs exposed by withdrawal, and raw breaches cannot revive a first retest. A later new actual BI is evaluated afresh. This is a snapshot relationship, not a permanent ban on a symbol.
 

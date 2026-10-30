@@ -69,6 +69,10 @@ pub struct StructureSnapshot {
     pub candidate_power: Option<IntervalPower>,
     pub macd: MacdFacts,
     pub results: Vec<StructureResult>,
+    /// Raw interval ending at the candidate's actual price owner, not its
+    /// latest observation cutoff or containing NewBar time. Still not a BI.
+    #[serde(default)]
+    pub candidate_endpoint_power: Option<IntervalPower>,
 }
 fn relation(al: f64, ah: f64, bl: f64, bh: f64) -> String {
     (if bl > ah {
@@ -119,6 +123,15 @@ pub fn get_structure(c: &CZSC, di: usize) -> StructureSnapshot {
     } else {
         None
     };
+    let candidate_endpoint_power = if state.candidate_stroke.state == "available" {
+        state
+            .candidate_stroke
+            .anchor_at
+            .zip(state.candidate_stroke.end_price_at)
+            .map(|(s, e)| interval_power(c, &macd, s, e))
+    } else {
+        None
+    };
     StructureSnapshot {
         basis: state.basis,
         di: state.di,
@@ -135,6 +148,7 @@ pub fn get_structure(c: &CZSC, di: usize) -> StructureSnapshot {
         candidate_power,
         macd: MacdFacts::capture(c, &macd),
         results: state.results,
+        candidate_endpoint_power,
     }
 }
 
