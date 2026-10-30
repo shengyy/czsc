@@ -181,6 +181,173 @@ fn forming(prices: &[f64], tail: &[f64]) -> czsc_core::analyze::CZSC {
 }
 
 #[test]
+fn candidate_endpoint_power_excludes_post_extreme_bars_and_matches_at_cutoff() {
+    for buy in [true, false] {
+        let prices: Vec<_> = [10., 20., 15., 19., 16., 24.]
+            .into_iter()
+            .map(|p| if buy { p } else { 40. - p })
+            .collect();
+        for tail in [[23.5, 23.25, 23.75], [23.75, 23.5, 23.25]] {
+            let tail: Vec<_> = tail
+                .into_iter()
+                .map(|p| if buy { p } else { 40. - p })
+                .collect();
+            let c = forming(&prices, &tail);
+            let snapshot = checked_structure(&c, 1);
+            let candidate = &snapshot.candidate_stroke;
+            let endpoint = snapshot.candidate_endpoint_power.as_ref().unwrap();
+            let cumulative = snapshot.candidate_power.as_ref().unwrap();
+            assert_eq!(endpoint.sdt, candidate.anchor_at.unwrap());
+            assert_eq!(endpoint.edt, candidate.end_price_at.unwrap());
+            assert_eq!(cumulative.edt, candidate.as_of.unwrap());
+            assert_eq!(endpoint.interval, "(sdt,edt]");
+            let raw: Vec<_> = c
+                .bars_raw
+                .iter()
+                .filter(|b| b.dt > endpoint.sdt && b.dt <= endpoint.edt)
+                .collect();
+            let numerical: Vec<_> = snapshot
+                .macd
+                .bars
+                .iter()
+                .filter(|b| b.dt > endpoint.sdt && b.dt <= endpoint.edt)
+                .collect();
+            assert_eq!(endpoint.sample_count, raw.len());
+            assert_eq!(endpoint.volume, Some(raw.iter().map(|b| b.vol).sum()));
+            assert_eq!(endpoint.amount, Some(raw.iter().map(|b| b.amount).sum()));
+            assert_eq!(endpoint.macd.status, "ready");
+            assert_eq!(
+                endpoint.macd.positive_area,
+                Some(numerical.iter().map(|b| b.hist.unwrap().max(0.)).sum())
+            );
+            assert_eq!(
+                endpoint.macd.negative_area,
+                Some(numerical.iter().map(|b| (-b.hist.unwrap()).max(0.)).sum())
+            );
+            if endpoint.edt == cumulative.edt {
+                assert_eq!(endpoint, cumulative);
+                assert_eq!(endpoint.sample_count, 3);
+            } else {
+                assert!(endpoint.edt < cumulative.edt);
+                assert_eq!(endpoint.sample_count, 2);
+                assert_eq!(cumulative.sample_count, 3);
+            }
+        }
+    }
+}
+
+#[test]
+fn candidate_endpoint_uses_raw_price_owner_not_containing_newbar_time() {
+    let mut c = forming(&[10., 20., 15., 19., 16., 24.], &[23.5, 23.75]);
+    let endpoint = c.bars_raw[c.bars_raw.len() - 2].clone();
+    let later = c.bars_raw.last().unwrap().clone();
+    // Retain the raw low owner inside a later-dated inclusion NewBar.
+    let merged = &mut c.bars_ubi[1];
+    merged.dt = later.dt;
+    merged.high = later.high;
+    merged.elements.push(later.clone());
+    c.bars_ubi.truncate(2);
+    let snapshot = checked_structure(&c, 1);
+    assert_eq!(snapshot.candidate_stroke.end_price_at, Some(endpoint.dt));
+    assert_eq!(snapshot.candidate_stroke.end_newbar_at, Some(later.dt));
+    assert_eq!(snapshot.candidate_endpoint_power.unwrap().edt, endpoint.dt);
+    assert_eq!(snapshot.candidate_power.unwrap().edt, later.dt);
+}
+
+#[test]
+fn candidate_endpoint_preserves_unavailable_material_and_absent_candidates() {
+    let original = forming(&[10., 20., 15., 19., 16., 24.], &[23.5, 23.25, 23.75]);
+    let anchor = original.bi_list.last().unwrap().fx_b.dt;
+    let anchor_index = original
+        .bars_raw
+        .iter()
+        .position(|b| b.dt == anchor)
+        .unwrap();
+    let mut warmup = original.clone();
+    warmup.bars_raw.drain(..anchor_index - 1);
+    let power = checked_structure(&warmup, 1)
+        .candidate_endpoint_power
+        .unwrap();
+    assert_eq!(power.macd.status, "unavailable");
+    assert_eq!(power.macd.reason.as_deref(), Some("warmup"));
+    assert!(power.macd.positive_area.is_none() && power.macd.negative_area.is_none());
+
+    let mut missing = original.clone();
+    // Real anchor-price ownership can differ from the FX time. Keep that
+    // source, but remove the interval's anchor timestamp from retained raw.
+    missing.bars_raw[anchor_index - 1].high = 24.;
+    let owner = missing.bars_raw[anchor_index - 1].clone();
+    missing.bi_list.last_mut().unwrap().fx_b.elements = vec![NewBar::new_from_raw(&owner)];
+    missing.bars_raw.remove(anchor_index);
+    let snapshot = checked_structure(&missing, 1);
+    assert_eq!(snapshot.candidate_stroke.state, "available");
+    let power = snapshot.candidate_endpoint_power.unwrap();
+    assert_eq!(power.macd.status, "unavailable");
+    assert_eq!(power.macd.reason.as_deref(), Some("missing_coverage"));
+    assert!(power.macd.positive_area.is_none() && power.macd.negative_area.is_none());
+    assert!(power.volume.is_none() && power.amount.is_none());
+
+    let mut no_source = original.clone();
+    no_source.bars_raw.remove(anchor_index);
+    let absent = checked_structure(&no_source, 1);
+    assert_eq!(absent.candidate_stroke.state, "unavailable");
+    assert!(absent.candidate_endpoint_power.is_none());
+    assert!(
+        checked_structure(&original, 2)
+            .candidate_endpoint_power
+            .is_none()
+    );
+    let empty = structure(&[10.]);
+    assert_eq!(checked_structure(&empty, 1).candidate_stroke.state, "none");
+    assert!(
+        checked_structure(&empty, 1)
+            .candidate_endpoint_power
+            .is_none()
+    );
+
+    let mut old = serde_json::to_value(checked_structure(&original, 1)).unwrap();
+    old.as_object_mut()
+        .unwrap()
+        .remove("candidate_endpoint_power");
+    let decoded: StructureSnapshot = serde_json::from_value(old.clone()).unwrap();
+    assert!(decoded.candidate_endpoint_power.is_none());
+    let mut restored = serde_json::to_value(&decoded).unwrap();
+    restored
+        .as_object_mut()
+        .unwrap()
+        .remove("candidate_endpoint_power");
+    assert_eq!(restored, old);
+    // Positional serde encodings keep all old field indices and default the
+    // newly appended field when decoding an old sequence.
+    let positional = serde_json::Value::Array(
+        [
+            "basis",
+            "di",
+            "as_of",
+            "status",
+            "bis",
+            "last_signal_bi",
+            "ubi_newbar_count",
+            "previous_zs",
+            "latest_finished_zs",
+            "zs_candidate",
+            "zs_relation",
+            "candidate_stroke",
+            "candidate_power",
+            "macd",
+            "results",
+        ]
+        .into_iter()
+        .map(|key| old[key].clone())
+        .collect(),
+    );
+    assert_eq!(
+        serde_json::from_value::<StructureSnapshot>(positional).unwrap(),
+        decoded
+    );
+}
+
+#[test]
 fn forming_second_and_third_have_native_anchors_but_are_never_confirmed_signals() {
     for buy in [true, false] {
         for second in [true, false] {

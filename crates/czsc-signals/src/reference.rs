@@ -94,7 +94,7 @@ impl SignalReference {
 }
 
 use crate::utils::bs::{Evaluation, MacdComparison, Point, PointKind};
-use czsc_core::{analyze::candidate::CandidateStroke, objects::zs::ZS};
+use czsc_core::{analyze::candidate::CandidateStroke, objects::zs::ZsView};
 
 impl ReferenceBi {
     /// Global one-based current-list position for role-bearing references.
@@ -132,7 +132,7 @@ pub struct CentreReference {
 }
 impl CentreReference {
     pub fn capture(c: &CZSC, start: usize, end: usize, limit: usize) -> Self {
-        let z = ZS::new(c.bi_list[start..end].to_vec());
+        let z = ZsView::new(&c.bi_list[start..end]);
         let crosses = |index: usize| {
             c.bi_list.get(index).is_some_and(|b| match b.direction {
                 Direction::Up => b.get_low() <= z.zg && b.get_high() > z.zg,

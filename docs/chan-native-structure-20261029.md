@@ -1,7 +1,13 @@
 # Native BI-proxy structure contract (2026-10-29)
 
 
-## 本机验收摘要
+The 20261030 supplement adds endpoint-bounded candidate power and removes
+internal canonical-member copies, with workspace version
+`1.0.1+ashare.20261030`. Existing numerical fields, canonical membership and
+signal qualification are unchanged. The 20261029 build and acceptance
+records below remain historical evidence for that earlier batch.
+
+## 20261029 本机验收摘要（历史批次）
 
 - 本批只施工 CZSC 上游；canonical 几何 owner 的 `analyze/utils.rs` 与 `e864cfb` 完全相同（SHA-256 `cbae6d14ef9ba9ae9b79acb56f3b82e0721b73049ab20720ef618adc30ae3af5`）。
 - 轻量补充冻结提交 `ed6b005` 的回归：Rust facade/core/signals/trader 250 项通过；安装优化 wheel 后的全部 `tests/unit` 284 项通过。原批 249/283 项保留通过。旧基线的 2 项预期 RED 分别隔离经验笔数门与 MA 唯一阻断；补充 API 在旧 wheel 上另有 1 项预期 RED（接口不存在），该轮最终均 GREEN。后续审查 A 修复与最终产物见下方专节。
@@ -47,7 +53,9 @@ The returned Python object is a detached `dict`; Rust returns `StructureSnapshot
 
 For per-bar first-known observation use `czsc.get_structure_state(c, di=1)` / Rust `czsc::get_structure_state(&c, 1) -> StructureState`. Both views call the same `structure.rs::evaluate_structure`; only `get_structure` subsequently constructs the full numerical projection. No signal qualification, reference semantics or existing full fields changed in this supplement.
 
-The light view contains exactly `basis, di, as_of, status, previous_zs, latest_finished_zs, zs_candidate, candidate_stroke, results`. Every nested field equals the corresponding full field, including rejected operands, missing reasons and the MACD comparison required to qualify first points/parents. It omits `bis`, `last_signal_bi`, `ubi_newbar_count`, `zs_relation`, `candidate_power`, `macd`. The light path neither computes all-BI/candidate power nor constructs/serializes the per-bar `MacdFacts` projection. Qualification still computes the current retained-input MACD and the needed comparison operands. There is no approximate cache, extra state store, event engine or durable identity.
+The light view contains exactly `basis, di, as_of, status, previous_zs, latest_finished_zs, zs_candidate, candidate_stroke, results`. Every nested field equals the corresponding full field, including rejected operands, missing reasons and the MACD comparison required to qualify first points/parents. It omits `bis`, `last_signal_bi`, `ubi_newbar_count`, `zs_relation`, `candidate_power`, `candidate_endpoint_power`, `macd`. The light path neither computes all-BI/candidate power nor constructs/serializes the per-bar `MacdFacts` projection. Qualification still computes the current retained-input MACD and the needed comparison operands. There is no approximate cache, extra state store, event engine or durable identity.
+
+Canonical partitioning and ZS geometry have one borrowed internal view. Public `get_zs_seq` materializes owned ZS members only at its return boundary; native signal qualification, structure stages and role references read the same borrowed members without copying their raw-bar trees. Forming evaluations are skipped only when their result would be discarded in favor of the confirmed evaluation. Neither optimization skips input prefixes, changes MACD qualification, or introduces retained computation state.
 
 ```python
 for bar in received_bars:
@@ -68,6 +76,7 @@ The separate typed view keeps the original Rust `StructureSnapshot` fields and P
 | `zs_relation` | `basis=bi_proxy`, separate `core` and `outer`: `above`, `below`, `touch`, `overlap`; null without two valid cores |
 | `candidate_stroke` | Native NewBar-derived moving segment, described below; never a BI |
 | `candidate_power` | `(anchor_at, as_of]` raw volume/amount/MACD values; numerical readiness does not complete a stroke |
+| `candidate_endpoint_power` | `(anchor_at, end_price_at]` raw volume/amount/MACD values, ending at the actual candidate extreme's raw owner; independent of the later observation cutoff and not a completed stroke |
 | `macd` | Full retained per-bar native sequence, parameters, scale, coverage and truncation flag |
 | `results` | First/second/third/second-like auxiliary results in each direction; status, reason and selected role operands |
 
@@ -101,6 +110,8 @@ Natural `sdt/edt`, direction, high/low, actual endpoint prices and complete core
 `candidate_stroke` has `state=available|none|unavailable`, optional reason, `kind=reverse|extension`, direction, `anchor_at`, `anchor_price`, `anchor_price_at`, `end_price`, `end_price_at`, `end_newbar_at`, `as_of`, and `role=first_retest_candidate|other`.
 
 The native analyzer supplies inclusion-processed NewBars and the last BI/FX. A reverse candidate excludes the entire anchor NewBar (including its merged raw constituents); an extension includes that centre. The boundary is selected from eligible NewBars with stable first-extreme ties. Only then is its actual raw price owner located. Raw extrema never substitute for `check_bi`. Missing real price ownership is `unavailable`.
+
+The full snapshot exposes two independent intervals from the same native MACD sequence. `candidate_power` continues through `as_of`, including raw bars received after the extreme. `candidate_endpoint_power` stops at `end_price_at`, not `end_newbar_at`; those times can differ after inclusion processing. Both use the existing `IntervalPower` shape and `(sdt,edt]` boundary. Each is null unless the candidate is `available` and its two explicit interval endpoints exist; insufficient retained coverage/warmup remains the interval owner's unavailable result with null areas. When `end_price_at == as_of` the two values are identical. Neither interval changes candidate geometry, signal stages, or confirmation/entry permission. The added optional endpoint field does not alter any existing snapshot field, and old serialized snapshots decode it as null.
 
 Forming B2 requires the specific first-point→native rebound chain; forming B3 requires a native departure of the current latest core. Both require a current reverse candidate, strict raw protection, and no new high/low beyond that fixed rebound/departure anchor. Pure breakouts, extensions, old BIs exposed by withdrawal, and raw breaches cannot revive a first retest. A later new actual BI is evaluated afresh. This is a snapshot relationship, not a permanent ban on a symbol.
 
@@ -136,7 +147,7 @@ The old long-series cache shortcut reseeded only a trailing window and rewrote f
 
 Existing `kind, window, overlap_bis, last_bi, zd, zg` remain. An appended `structure` contains the same evaluator's role-bearing result and stage. First/second signals now capture references too. A miss removes the key; unchanged label values still refresh changed operands. Old JSON/positional MessagePack snapshots decode with `structure=null` and missing endpoint prices null. Rebuild old hot state from raw input when adopting the new contract; decoding compatibility is not evidence that old cached labels have new semantics.
 
-The Cargo workspace version is `1.0.1+ashare.20261029`; Cargo.lock and generated stub are synchronized. `uv.lock` contains a dynamic editable workspace node and has no duplicated CZSC version to edit (`uv lock --offline` remained unchanged). Consumers should pin the delivered Git commit, not a local checkout/path dependency.
+The current Cargo workspace version is `1.0.1+ashare.20261030` for the endpoint-power field and borrowed centre evaluation; Cargo.lock follows that single version owner. The public Python signatures are unchanged. `uv.lock` contains a dynamic editable workspace node and has no duplicated CZSC version to edit. Consumers should pin the delivered Git commit as well as record the engine version. The 20261029 artifact names and acceptance results below describe the previous batch, not this build.
 
 ## Validation and assumptions
 

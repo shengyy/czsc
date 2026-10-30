@@ -9,7 +9,7 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use czsc_core::{
-    analyze::{CZSC, candidate::CandidateStroke, utils::get_zs_seq},
+    analyze::{CZSC, candidate::CandidateStroke, utils::get_zs_seq_view},
     objects::{direction::Direction, state::MacdSeries},
 };
 use serde::{Deserialize, Serialize};
@@ -69,6 +69,10 @@ pub struct StructureSnapshot {
     pub candidate_power: Option<IntervalPower>,
     pub macd: MacdFacts,
     pub results: Vec<StructureResult>,
+    /// Raw interval ending at the candidate's actual price owner, not its
+    /// latest observation cutoff or containing NewBar time. Still not a BI.
+    #[serde(default)]
+    pub candidate_endpoint_power: Option<IntervalPower>,
 }
 fn relation(al: f64, ah: f64, bl: f64, bh: f64) -> String {
     (if bl > ah {
@@ -119,6 +123,15 @@ pub fn get_structure(c: &CZSC, di: usize) -> StructureSnapshot {
     } else {
         None
     };
+    let candidate_endpoint_power = if state.candidate_stroke.state == "available" {
+        state
+            .candidate_stroke
+            .anchor_at
+            .zip(state.candidate_stroke.end_price_at)
+            .map(|(s, e)| interval_power(c, &macd, s, e))
+    } else {
+        None
+    };
     StructureSnapshot {
         basis: state.basis,
         di: state.di,
@@ -135,6 +148,7 @@ pub fn get_structure(c: &CZSC, di: usize) -> StructureSnapshot {
         candidate_power,
         macd: MacdFacts::capture(c, &macd),
         results: state.results,
+        candidate_endpoint_power,
     }
 }
 
@@ -153,7 +167,7 @@ fn evaluate_structure(c: &CZSC, di: usize, macd: &MacdSeries) -> StructureState 
     let end = bs::prefix_end(c, di);
     let n = end.unwrap_or(0);
     let finished = c.finished_bis_slice().len().min(n);
-    let zones = get_zs_seq(&c.bi_list[..finished]);
+    let zones = get_zs_seq_view(&c.bi_list[..finished]);
     let mut valid = Vec::new();
     let mut zs_candidate = None;
     for z in zones {
@@ -191,12 +205,13 @@ fn evaluate_structure(c: &CZSC, di: usize, macd: &MacdSeries) -> StructureState 
                     }
                 };
                 let confirmed = eval(false);
-                let forming = (di == 1).then(|| eval(true));
                 evals.push(
                     if confirmed.confirmed() || c.bi_list[end - 1].direction == dir {
                         confirmed
+                    } else if di == 1 {
+                        eval(true)
                     } else {
-                        forming.unwrap_or(confirmed)
+                        confirmed
                     },
                 );
             }

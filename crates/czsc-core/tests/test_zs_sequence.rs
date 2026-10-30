@@ -1,13 +1,13 @@
 //! Explicit incoming BI, frozen three-BI seed, and confirmed boundary rollback.
 use chrono::{TimeZone, Utc};
 use czsc_core::{
-    analyze::utils::get_zs_seq,
+    analyze::utils::{get_zs_seq, get_zs_seq_view},
     objects::{
         bi::{BI, BIBuilder},
         direction::Direction,
         fx::FXBuilder,
         mark::Mark,
-        zs::ZS,
+        zs::{ZS, ZsView},
     },
 };
 
@@ -59,6 +59,89 @@ fn prices(values: &[f64], mirror: bool) -> Vec<f64> {
         .iter()
         .map(|p| if mirror { 60. - p } else { *p })
         .collect()
+}
+
+fn check_borrowed_groups(bis: &[BI]) {
+    let owned = get_zs_seq(bis);
+    let views = get_zs_seq_view(bis);
+    assert_eq!(owned.len(), views.len());
+    for (z, view) in owned.iter().zip(&views) {
+        assert_eq!(z.bis.len(), view.bis.len());
+        assert_eq!(
+            (z.sdt, z.edt, z.sdir, z.edir),
+            (view.sdt, view.edt, view.sdir, view.edir)
+        );
+        for (a, b) in [
+            (z.zd, view.zd),
+            (z.zg, view.zg),
+            (z.zz, view.zz),
+            (z.dd, view.dd),
+            (z.gg, view.gg),
+        ] {
+            assert_eq!(a.to_bits(), b.to_bits());
+        }
+        assert_eq!(z.is_valid(), view.is_valid());
+        for (copy, borrowed) in z.bis.iter().zip(view.bis) {
+            let original = bis.iter().find(|b| b.fx_a.dt == borrowed.fx_a.dt).unwrap();
+            assert!(std::ptr::eq(borrowed, original));
+            assert!(!std::ptr::eq(copy, original));
+            assert_eq!(
+                (copy.fx_a.dt, copy.fx_b.dt),
+                (borrowed.fx_a.dt, borrowed.fx_b.dt)
+            );
+        }
+    }
+}
+
+#[test]
+fn canonical_views_borrow_members_and_preserve_owned_geometry() {
+    check_borrowed_groups(&[]);
+    for mirror in [false, true] {
+        for sequence in [
+            vec![20., 14., 18., 15., 19., 10., 16., 11., 14., 9.],
+            vec![30., 20., 25., 15., 18., 12., 16.],
+            vec![10., 20., 15., 20., 15., 20., 14., 19.],
+        ] {
+            let bis = continuous_bis(&prices(&sequence, mirror));
+            for end in 0..=bis.len() {
+                check_borrowed_groups(&bis[..end]);
+            }
+        }
+    }
+}
+
+#[test]
+fn borrowed_and_owned_geometry_share_non_finite_and_boundary_rules() {
+    for value in [
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        0.,
+        -0.,
+        15.,
+        20.,
+    ] {
+        let mut bis = continuous_bis(&[10., 20., 15., 20., 15., 20., 14., 19.]);
+        bis[2].fx_a.high = value;
+        bis[2].fx_b.high = value;
+        bis[3].fx_a.low = value;
+        bis[3].fx_b.low = value;
+        for end in 1..=bis.len() {
+            check_borrowed_groups(&bis[..end]);
+            let owned = ZS::new(bis[..end].to_vec());
+            let view = ZsView::new(&bis[..end]);
+            for (a, b) in [
+                (owned.zd, view.zd),
+                (owned.zg, view.zg),
+                (owned.zz, view.zz),
+                (owned.dd, view.dd),
+                (owned.gg, view.gg),
+            ] {
+                assert_eq!(a.to_bits(), b.to_bits());
+            }
+            assert_eq!(owned.is_valid(), view.is_valid());
+        }
+    }
 }
 
 #[test]

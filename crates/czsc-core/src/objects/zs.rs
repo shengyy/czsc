@@ -42,8 +42,25 @@ pub struct ZS {
     pub cache: Arc<RwLock<Option<Py<PyDict>>>>,
 }
 
-impl ZS {
-    pub fn new(bis: Vec<BI>) -> Self {
+/// Borrowed workspace projection of the same ZS geometry. No BI/raw-bar copy
+/// or separate qualification rule; public owned ZS values use this owner too.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy)]
+pub struct ZsView<'a> {
+    pub bis: &'a [BI],
+    pub sdt: DateTime<Utc>,
+    pub edt: DateTime<Utc>,
+    pub sdir: Direction,
+    pub edir: Direction,
+    pub zg: f64,
+    pub zd: f64,
+    pub zz: f64,
+    pub gg: f64,
+    pub dd: f64,
+}
+
+impl<'a> ZsView<'a> {
+    pub fn new(bis: &'a [BI]) -> Self {
         let sdt = bis.first().unwrap().start_dt();
         let edt = bis.last().unwrap().end_dt();
         let sdir = bis.first().unwrap().direction;
@@ -69,7 +86,7 @@ impl ZS {
 
         let zz = zd + (zg - zd) * 0.5;
 
-        ZS {
+        Self {
             bis,
             sdt,
             edt,
@@ -80,6 +97,44 @@ impl ZS {
             zz,
             gg,
             dd,
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        valid_bis(self.bis, self.zd, self.zg)
+    }
+}
+
+fn valid_bis(bis: &[BI], zd: f64, zg: f64) -> bool {
+    if zg < zd {
+        return false;
+    }
+
+    bis.iter().all(|bi| {
+        // 情况1: 笔的高点在中枢区间内
+        let high_in_range = (bi.get_high() <= zg) && (bi.get_high() >= zd);
+        // 情况2: 笔的低点在中枢区间内
+        let low_in_range = (bi.get_low() <= zg) && (bi.get_low() >= zd);
+        // 情况3: 笔完全包含中枢区间
+        let contains_range = (bi.get_high() >= zg) && (bi.get_low() <= zd);
+        high_in_range || low_in_range || contains_range
+    })
+}
+
+impl ZS {
+    pub fn new(bis: Vec<BI>) -> Self {
+        let view = ZsView::new(&bis);
+        Self {
+            sdt: view.sdt,
+            edt: view.edt,
+            sdir: view.sdir,
+            edir: view.edir,
+            zg: view.zg,
+            zd: view.zd,
+            zz: view.zz,
+            gg: view.gg,
+            dd: view.dd,
+            bis,
             #[cfg(feature = "python")]
             cache: Arc::new(RwLock::new(None)),
         }
@@ -87,21 +142,7 @@ impl ZS {
 
     /// 中枢是否有效
     pub fn is_valid(&self) -> bool {
-        let zg = self.zg;
-        let zd = self.zd;
-        if zg < zd {
-            return false;
-        }
-
-        self.bis.iter().all(|bi| {
-            // 情况1: 笔的高点在中枢区间内
-            let high_in_range = (bi.get_high() <= zg) && (bi.get_high() >= zd);
-            // 情况2: 笔的低点在中枢区间内
-            let low_in_range = (bi.get_low() <= zg) && (bi.get_low() >= zd);
-            // 情况3: 笔完全包含中枢区间
-            let contains_range = (bi.get_high() >= zg) && (bi.get_low() <= zd);
-            high_in_range || low_in_range || contains_range
-        })
+        valid_bis(&self.bis, self.zd, self.zg)
     }
 }
 #[cfg(feature = "python")]
