@@ -176,7 +176,7 @@ fn evaluate_structure(c: &CZSC, di: usize, macd: &MacdSeries) -> StructureState 
             .iter()
             .position(|b| b.fx_a.dt == z.bis[0].fx_a.dt && b.fx_b.dt == z.bis[0].fx_b.dt)
             .unwrap();
-        let r = CentreReference::capture(c, start, start + z.bis.len(), n);
+        let r = CentreReference::capture(c, start, start + z.bis.len());
         if r.valid {
             valid.push(r);
         } else if z.bis.len() <= 2 {

@@ -163,40 +163,34 @@ fn an_interior_wick_cannot_be_hidden_by_the_bi_endpoint() {
 }
 
 #[test]
-fn a_confirmed_rollback_core_replaces_the_old_reference() {
+fn finishing_the_outside_retest_keeps_the_confirmed_third_point() {
     for buy in [true, false] {
-        // The final outside retest confirms [11,14]. Until it is finished,
-        // the finished-BI view still contains only the older [15,18] core.
+        // 11->14 is the first retest outside [15,18]. Whether or not it has
+        // entered finished_bis, the core and the third point stay the same.
         let prices: Vec<_> = [20., 14., 19., 15., 18., 10., 16., 11., 14.]
             .into_iter()
             .map(|p| if buy { 40. - p } else { p })
             .collect();
         let mut c = structure(&prices);
         let mut cache = TaCache::default();
+        let label = if buy {
+            "三买_任意_任意_0"
+        } else {
+            "三卖_任意_任意_0"
+        };
         let (key, value) = evaluate(&c, "cxt_third_bs_V230318", 1, &mut cache);
-        assert_eq!(
-            value,
-            if buy {
-                "三买_任意_任意_0"
-            } else {
-                "三卖_任意_任意_0"
-            }
-        );
+        assert_eq!(value, label);
         let old = cache.signal_references[&key].clone();
         assert_eq!((old.zd, old.zg), if buy { (22., 25.) } else { (15., 18.) });
         c.bars_ubi = c.bi_list[0].bars.clone();
         let zones = get_zs_seq(c.finished_bis_slice());
-        let latest = zones.last().unwrap();
-        assert_eq!(latest.bis.len(), 3);
         assert_eq!(
-            (latest.zd, latest.zg),
-            if buy { (26., 29.) } else { (11., 14.) }
+            zones.iter().map(|z| z.bis.len()).collect::<Vec<_>>(),
+            [6, 1]
         );
-        assert!(
-            evaluate(&c, "cxt_third_bs_V230318", 1, &mut cache)
-                .1
-                .starts_with("其他")
-        );
-        assert!(!cache.signal_references.contains_key(&key));
+        let (_, value) = evaluate(&c, "cxt_third_bs_V230318", 1, &mut cache);
+        assert_eq!(value, label);
+        let after = &cache.signal_references[&key];
+        assert_eq!((after.zd, after.zg), (old.zd, old.zg));
     }
 }

@@ -126,36 +126,13 @@ pub struct CentreReference {
     pub bi_count: usize,
     pub valid: bool,
     pub members: Vec<ReferenceBi>,
+    /// The BI before the first member. Departure/retest are qualified roles of
+    /// a structure result, never guessed from the core's own last member.
     pub entry: Option<ReferenceBi>,
-    pub departure: Option<ReferenceBi>,
-    pub retest: Option<ReferenceBi>,
 }
 impl CentreReference {
-    pub fn capture(c: &CZSC, start: usize, end: usize, limit: usize) -> Self {
+    pub fn capture(c: &CZSC, start: usize, end: usize) -> Self {
         let z = ZsView::new(&c.bi_list[start..end]);
-        let crosses = |index: usize| {
-            c.bi_list.get(index).is_some_and(|b| match b.direction {
-                Direction::Up => b.get_low() <= z.zg && b.get_high() > z.zg,
-                Direction::Down => b.get_high() >= z.zd && b.get_low() < z.zd,
-            })
-        };
-        // The native last BI can be outside the finished membership prefix.
-        // These are roles, not qualification: a retest can return inside the core.
-        let departure = if z.bis.len() >= 4 && crosses(end - 1) {
-            Some(end - 1)
-        } else if z.bis.len() >= 3 && end < limit && crosses(end) {
-            Some(end)
-        } else {
-            None
-        };
-        let retest = departure.and_then(|i| {
-            let next = i + 1;
-            (next < limit
-                && c.bi_list.get(next).is_some_and(|b| {
-                    b.fx_a.dt == c.bi_list[i].fx_b.dt && b.direction != c.bi_list[i].direction
-                }))
-            .then_some(next)
-        });
         Self {
             sdt: z.sdt,
             edt: z.edt,
@@ -168,8 +145,6 @@ impl CentreReference {
             valid: z.bis.len() >= 3 && z.is_valid(),
             members: (start..end).map(|i| ReferenceBi::at(c, i)).collect(),
             entry: start.checked_sub(1).map(|i| ReferenceBi::at(c, i)),
-            departure: departure.map(|i| ReferenceBi::at(c, i)),
-            retest: retest.map(|i| ReferenceBi::at(c, i)),
         }
     }
 }
@@ -216,11 +191,7 @@ impl StructureReference {
                     None
                 }
             });
-        let mut centre = CentreReference::capture(c, p.centre_start, p.centre_end, p.end);
-        if p.kind != PointKind::SecondLike {
-            centre.departure = Some(r(p.departure));
-            centre.retest = p.retest.map(r);
-        }
+        let centre = CentreReference::capture(c, p.centre_start, p.centre_end);
         let candidate_stroke = p.candidate.then(|| {
             let mut s = c.get_candidate_stroke();
             if stage == "forming_retest" {

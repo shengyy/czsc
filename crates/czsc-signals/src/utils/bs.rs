@@ -140,15 +140,16 @@ fn adjacent(a: &BI, b: &BI) -> bool {
 }
 
 /// Complete retained raw path. For di>1, cutoff is the selected endpoint, not
-/// an as-of historical analyzer. New highs/lows after a retest anchor reject a
-/// withdrawn old BI instead of reviving it as today's first retest.
+/// an as-of historical analyzer. Only the qualifying boundary is guarded: a
+/// later move beyond the rebound/departure extreme continues the point rather
+/// than invalidating it, and a reverse candidate that overtakes its anchor is
+/// already re-identified as an extension by the native BI owner.
 fn guard_path(
     c: &CZSC,
     end: usize,
     begin: usize,
     direction: Direction,
     boundary: f64,
-    cap: Option<f64>,
     inclusive: bool,
 ) -> Result<(), &'static str> {
     let start = c.bi_list[begin].fx_b.dt;
@@ -158,7 +159,7 @@ fn guard_path(
         Some(c.bi_list[end - 1].fx_b.dt)
     }
     .ok_or("missing_coverage")?;
-    if !boundary.is_finite() || cap.is_some_and(|v| !v.is_finite()) {
+    if !boundary.is_finite() {
         return Err("non_finite");
     }
     if !c.bars_raw.iter().any(|b| b.dt == start)
@@ -200,15 +201,6 @@ fn guard_path(
         };
         if !holds {
             return Err("boundary_touched");
-        }
-        if cap.is_some_and(|cap| {
-            if direction == Direction::Down {
-                b.high > cap
-            } else {
-                b.low < cap
-            }
-        }) {
-            return Err("anchor_exceeded");
         }
     }
     Ok(())
@@ -341,7 +333,7 @@ pub fn evaluate_first(c: &CZSC, end: usize, direction: Direction, macd: &MacdSer
         } else {
             last.get_high()
         };
-        if let Err(r) = guard_path(c, end, end - 1, direction, boundary, None, true) {
+        if let Err(r) = guard_path(c, end, end - 1, direction, boundary, true) {
             return result.reject(r);
         }
     }
@@ -381,11 +373,6 @@ pub fn evaluate_second(
     } else {
         c.bi_list[anchor].get_high()
     };
-    let cap = if direction == Direction::Down {
-        c.bi_list[rebound].get_high()
-    } else {
-        c.bi_list[rebound].get_low()
-    };
     if forming {
         if end != c.bi_list.len() || !candidate_matches(c, direction, boundary) {
             return miss("no_current_reverse_candidate");
@@ -419,10 +406,7 @@ pub fn evaluate_second(
         reason: None,
         point: Some(p),
     };
-    if let Err(r) = guard_path(c, end, anchor, direction, boundary, None, false) {
-        return result.reject(r);
-    }
-    if let Err(r) = guard_path(c, end, rebound, direction, boundary, Some(cap), false) {
+    if let Err(r) = guard_path(c, end, anchor, direction, boundary, false) {
         return result.reject(r);
     }
     result
@@ -508,11 +492,6 @@ pub fn evaluate_third(c: &CZSC, end: usize, direction: Direction, forming: bool)
             return miss("boundary_touched");
         }
     }
-    let cap = if direction == Direction::Down {
-        leave.get_high()
-    } else {
-        leave.get_low()
-    };
     let result = Evaluation {
         kind: PointKind::Third,
         direction,
@@ -541,7 +520,7 @@ pub fn evaluate_third(c: &CZSC, end: usize, direction: Direction, forming: bool)
             macd_comparison: None,
         }),
     };
-    if let Err(r) = guard_path(c, end, leave_index, direction, boundary, Some(cap), false) {
+    if let Err(r) = guard_path(c, end, leave_index, direction, boundary, false) {
         return result.reject(r);
     }
     result
@@ -605,11 +584,6 @@ pub fn evaluate_second_like(
     } {
         return miss("boundary_touched");
     }
-    let cap = if direction == Direction::Down {
-        c.bi_list[rebound].get_high()
-    } else {
-        c.bi_list[rebound].get_low()
-    };
     let result = Evaluation {
         kind: PointKind::SecondLike,
         direction,
@@ -640,7 +614,7 @@ pub fn evaluate_second_like(
             macd_comparison: None,
         }),
     };
-    if let Err(r) = guard_path(c, end, rebound, direction, boundary, Some(cap), false) {
+    if let Err(r) = guard_path(c, end, rebound, direction, boundary, false) {
         return result.reject(r);
     }
     let anchor = parent.first_point_anchor.unwrap();
@@ -649,7 +623,7 @@ pub fn evaluate_second_like(
     } else {
         c.bi_list[anchor].get_high()
     };
-    if let Err(r) = guard_path(c, end, anchor, direction, parent_boundary, None, false) {
+    if let Err(r) = guard_path(c, end, anchor, direction, parent_boundary, false) {
         return result.reject(r);
     }
     result

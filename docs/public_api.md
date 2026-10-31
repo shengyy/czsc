@@ -152,7 +152,7 @@ reference = cs.signal_references.get(key) # 无当前命中引用时为 None
 
 `1.0.1+ashare.20261029` 保留 20261028 canonical 几何，替换一类力度比较并取消二/三类 MA 和经验笔数否决。信号键保留但命中集合变化。升级须从 K 线重建，不能复用旧热状态；完整语义见 [native structure 合同](chan-native-structure-20261029.md)。
 
-`1.0.1+ashare.20261101` 在完整快照的 `macd` 下增加 `segments` 柱段视图，其它字段、阶段和信号不变。
+`1.0.1+ashare.20261101` 在完整快照的 `macd` 下增加 `segments` 柱段视图；中枢不再把尾两笔回退给新核、二/三类守界只看资格边界（去掉 `anchor_exceeded`）、`CentreReference` 只保留 `entry` 与成员，离开/回试角色仅由结构结果给出。中枢分组与阶段因此变化，升级须从 K 线重建。
 
 `1.0.1+ashare.20261030` 在该合同上增加 `candidate_endpoint_power`，并用同源借用视图消除内部 BI 深拷贝；既有字段数值和信号资格不变。版本由 Cargo workspace 单点声明，Python metadata 跟随，使用方仍应精确锁定 Git revision。
 
