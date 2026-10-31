@@ -131,6 +131,34 @@ fn macd_coverage_warmup_nonfinite_and_zero_area_are_not_filled_with_zero() {
     assert!(serde_json::to_string(&s).is_ok());
     assert_eq!(s.macd.hist_scale, 1.);
     assert!(s.macd.bars[..33].iter().all(|b| b.hist.is_none()));
+    assert!(checked_structure(&zero, 1).macd.segments.is_empty());
+    // Segments tile every ready bar from the first signed hist, alternating sign.
+    let s = checked_structure(&c, 1);
+    let ready: Vec<_> = s.macd.bars.iter().filter(|b| b.hist.is_some()).collect();
+    let first = ready.iter().position(|b| b.hist != Some(0.)).unwrap();
+    let seg = &s.macd.segments;
+    assert_eq!(
+        seg.iter().map(|x| x.bars).sum::<usize>(),
+        ready.len() - first
+    );
+    assert_eq!(seg[0].sdt, ready[first].dt);
+    assert_eq!(seg.last().unwrap().edt, ready.last().unwrap().dt);
+    assert!(
+        seg.windows(2)
+            .all(|w| w[0].sign == -w[1].sign && w[0].edt < w[1].sdt)
+    );
+    for x in seg {
+        let inside: Vec<_> = ready
+            .iter()
+            .filter(|b| b.dt >= x.sdt && b.dt <= x.edt)
+            .collect();
+        assert_eq!(inside.len(), x.bars);
+        let peak = inside
+            .iter()
+            .map(|b| b.hist.unwrap())
+            .fold(0., |a: f64, h| if h.abs() > a.abs() { h } else { a });
+        assert_eq!((x.peak, x.peak.signum() as i8), (peak, x.sign));
+    }
 }
 
 #[test]

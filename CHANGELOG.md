@@ -11,6 +11,7 @@
 
 ### Added
 
+- Local fork `1.0.1+ashare.20261101.1`: full native structure snapshots add `macd.segments`, the maximal same-sign runs of the retained MACD histogram with `sign`, `sdt`, `edt`, `bars`, signed `peak` and `peak_at`. A zero bar continues the open run and never starts one; a missing/non-finite bar closes it. The view carries no area (force stays on BI intervals) and does not change `macd.bars`, BI power, stages or signals. The lightweight view is unchanged.
 - In local fork `1.0.1+ashare.20261030.1`, `CzscSignals.structure_state(freq, di=1)` reads the existing native state owner without copying frequency engines. `last_bi(freq)` borrows the current last BI in Rust and returns only that BI copy in Python; missing frequencies are explicit errors and an engine with no BI returns null. Existing outputs, field order and snapshot state are unchanged.
 - Full native structure snapshots now include `candidate_endpoint_power` for `(anchor_at, end_price_at]`, alongside the unchanged candidate-to-`as_of` interval. Both reuse the same raw-interval/MACD owner; an available numerical interval does not confirm a stroke or grant a buy/sell signal. Python exposes the Rust field directly, and the lightweight view is unchanged.
 

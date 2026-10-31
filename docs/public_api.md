@@ -96,6 +96,7 @@ Python `czsc.get_structure(c, di=1)` 与 Rust `czsc::get_structure(&c, 1)` 共�
 facts = czsc.get_structure(c)
 current = [r for r in facts["results"] if r["status"] in ("confirmed_valid", "forming_retest")]
 macd_bars = facts["macd"]["bars"]  # 原生 hist_scale=1，不在 Python 重算 EMA
+segments = facts["macd"]["segments"]  # 同号柱段：sign/sdt/edt/bars/peak/peak_at，零柱延续、缺值断段，不含面积
 ```
 
 `di` 仅切当前列表，`di!=1` 没有 forming。应用逐 K 观察记录首次可知；候选不冒充 BI，公开 `s` 信号仍只给 confirmed。完整字段、数值/预热和角色示例见 [合同](chan-native-structure-20261029.md)。
@@ -150,6 +151,8 @@ reference = cs.signal_references.get(key) # 无当前命中引用时为 None
 | `structure` | dict / null | 同源 `basis=bi_proxy`、阶段和 entry/departure/rebound/retest/anchor 等操作数；旧快照为 null |
 
 `1.0.1+ashare.20261029` 保留 20261028 canonical 几何，替换一类力度比较并取消二/三类 MA 和经验笔数否决。信号键保留但命中集合变化。升级须从 K 线重建，不能复用旧热状态；完整语义见 [native structure 合同](chan-native-structure-20261029.md)。
+
+`1.0.1+ashare.20261101` 在完整快照的 `macd` 下增加 `segments` 柱段视图，其它字段、阶段和信号不变。
 
 `1.0.1+ashare.20261030` 在该合同上增加 `candidate_endpoint_power`，并用同源借用视图消除内部 BI 深拷贝；既有字段数值和信号资格不变。版本由 Cargo workspace 单点声明，Python metadata 跟随，使用方仍应精确锁定 Git revision。
 

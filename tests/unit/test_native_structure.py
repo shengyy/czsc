@@ -60,6 +60,7 @@ def test_public_function_is_native_and_missing_material_is_explicit(bars):
     assert s["macd"]["params"] == [12, 26, 9]
     assert s["macd"]["warmup_bars"] == 33
     assert all(row["hist"] is None for row in s["macd"]["bars"])
+    assert s["macd"]["segments"] == []
     assert not s["results"]
     json.dumps(s, allow_nan=False)
 
@@ -141,6 +142,19 @@ def test_per_bi_macd_is_exactly_the_published_raw_interval(bars):
     assert all(r["hist"] is not None for r in raw[33:])
     for row in raw[33:]:
         assert row["hist"] == row["dif"] - row["dea"]
+    runs = []
+    for row in raw[33:]:
+        sign = (row["hist"] > 0) - (row["hist"] < 0)
+        if runs and sign in (0, runs[-1]["sign"]):
+            run = runs[-1]
+            run.update(edt=row["dt"], bars=run["bars"] + 1)
+            if abs(row["hist"]) > abs(run["peak"]):
+                run.update(peak=row["hist"], peak_at=row["dt"])
+        elif sign:
+            runs.append(
+                {"sign": sign, "sdt": row["dt"], "edt": row["dt"], "bars": 1, "peak": row["hist"], "peak_at": row["dt"]}
+            )
+    assert len(runs) > 2 and s["macd"]["segments"] == runs
     ready = 0
     for b in s["bis"]:
         power = b["power"]

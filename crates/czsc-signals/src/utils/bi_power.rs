@@ -192,14 +192,68 @@ pub struct MacdCoverage {
     pub first_ready_at: Option<DateTime<Utc>>,
     pub input: String,
 }
+/// One maximal run of same-sign histogram bars over the retained raw bars.
+/// A zero bar continues the open run (it has no sign of its own) and never
+/// starts one; a non-finite bar (warm-up or contaminated input) closes it.
+/// No area: force is compared on BI intervals, this view is only the rhythm.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MacdSegment {
+    pub sign: i8,
+    pub sdt: DateTime<Utc>,
+    pub edt: DateTime<Utc>,
+    pub bars: usize,
+    /// Signed histogram value with the largest magnitude in the run.
+    pub peak: f64,
+    pub peak_at: DateTime<Utc>,
+}
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MacdFacts {
     pub params: [usize; 3],
     pub hist_scale: f64,
     pub warmup_bars: usize,
     pub bars: Vec<MacdBar>,
+    pub segments: Vec<MacdSegment>,
     pub coverage: MacdCoverage,
     pub truncated: bool,
+}
+
+pub fn macd_segments(bars: &[MacdBar]) -> Vec<MacdSegment> {
+    let mut out: Vec<MacdSegment> = Vec::new();
+    let mut open = false;
+    for b in bars {
+        let Some(h) = b.hist else {
+            open = false;
+            continue;
+        };
+        let sign: i8 = if h > 0. {
+            1
+        } else if h < 0. {
+            -1
+        } else {
+            0
+        };
+        let joins = open && out.last().is_some_and(|s| sign == 0 || sign == s.sign);
+        if joins {
+            let s = out.last_mut().unwrap();
+            s.edt = b.dt;
+            s.bars += 1;
+            if h.abs() > s.peak.abs() {
+                s.peak = h;
+                s.peak_at = b.dt;
+            }
+        } else if sign != 0 {
+            out.push(MacdSegment {
+                sign,
+                sdt: b.dt,
+                edt: b.dt,
+                bars: 1,
+                peak: h,
+                peak_at: b.dt,
+            });
+            open = true;
+        }
+    }
+    out
 }
 impl MacdFacts {
     pub fn capture(c: &CZSC, s: &MacdSeries) -> Self {
@@ -230,9 +284,59 @@ impl MacdFacts {
             params: [12, 26, 9],
             hist_scale: HIST_SCALE,
             warmup_bars: LOOKBACK,
+            segments: macd_segments(&bars),
             bars,
             coverage,
             truncated: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn bar(minute: i64, hist: Option<f64>) -> MacdBar {
+        MacdBar {
+            dt: Utc.timestamp_opt(minute * 60, 0).unwrap(),
+            dif: hist,
+            dea: hist.map(|_| 0.),
+            hist,
+        }
+    }
+
+    #[test]
+    fn zero_continues_a_run_and_missing_values_close_it() {
+        let hist = [
+            None,
+            Some(0.),
+            Some(0.2),
+            Some(0.),
+            Some(0.5),
+            Some(-0.1),
+            Some(-0.4),
+            None,
+            Some(-0.3),
+            Some(0.),
+        ];
+        let bars: Vec<_> = hist
+            .iter()
+            .enumerate()
+            .map(|(i, h)| bar(i as i64, *h))
+            .collect();
+        let s = macd_segments(&bars);
+        let rows: Vec<_> = s
+            .iter()
+            .map(|x| (x.sign, x.sdt, x.edt, x.bars, x.peak, x.peak_at))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                (1, bars[2].dt, bars[4].dt, 3, 0.5, bars[4].dt),
+                (-1, bars[5].dt, bars[6].dt, 2, -0.4, bars[6].dt),
+                (-1, bars[8].dt, bars[9].dt, 2, -0.3, bars[8].dt),
+            ]
+        );
     }
 }
