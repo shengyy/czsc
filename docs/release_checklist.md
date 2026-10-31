@@ -19,7 +19,6 @@
 检查范围与方法：
 
 - [ ] **`README.md`**：安装命令、最小示例、API 调用片段、特性列表都能跑通；版本徽章/截图同步
-- [ ] **`CLAUDE.md`**：模块路径、目录结构描述与环境变量名均与当前代码一致
 - [ ] **`docs/examples/*.py`**：每个示例真实可运行（至少 `python -c` import 不报错）；删除的示例同步从 `docs/examples.md` 索引里删掉
 - [ ] **`docs/migration/`**：历史迁移说明里引用的旧 API/路径，与当前实际"已删除/已改名"的事实对齐
 - [ ] **公开 docstring**：`czsc/` 顶层导出对象、`crates/*/src/lib.rs` 公开 item 的 docstring 中的代码示例可执行
@@ -29,8 +28,7 @@
 
 ```bash
 # 1) 找 md 里引用的 czsc.xxx 符号，对照实际是否存在
-rg -n 'czsc\.[a-zA-Z_][a-zA-Z0-9_.]*' README.md CLAUDE.md docs/ \
-   | awk -F'czsc\\.' '{print $2}' | awk '{print $1}' | sort -u \
+rg -n 'czsc\.[a-zA-Z_][a-zA-Z0-9_.]*' README.md docs/ \| awk -F'czsc\\.' '{print $2}' | awk '{print $1}' | sort -u \
    > /tmp/md_refs.txt
 uv run python -c "
 import czsc, sys
@@ -42,8 +40,7 @@ for r in refs:
 "
 
 # 2) 确认面向用户文档没有引用已删除的模块路径
-rg -n 'czsc\.svc|czsc\.signals\.|czsc\.core\b' README.md docs/ \
-   && echo "::error:: 上述命中均为已删除模块路径，需从文档中清理"
+rg -n 'czsc\.svc|czsc\.signals\.|czsc\.core\b' README.md docs/ \&& echo "::error:: 上述命中均为已删除模块路径，需从文档中清理"
 
 # 3) 校验案例索引与 docs/examples/ 实际文件一致
 python - <<'PY'

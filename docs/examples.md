@@ -227,4 +227,3 @@ uv run python docs/examples/13_lightweight_charts_html.py
 - 类型 stub：`czsc/_native/__init__.pyi`（Rust 扩展的完整类型声明）
 - 信号开发规范：[飞书文档 - 信号函数编写规范](https://s0cqcxuy3p.feishu.cn/wiki/wikcnCFLLTNGbr2THqo7KtWfBkd)
 - WeightBacktest 工具集：见 [czsc-weight-backtest skill](../../) 与 wbt 包文档
-- CLAUDE.md：项目整体设计与最佳实践

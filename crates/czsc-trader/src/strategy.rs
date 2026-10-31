@@ -2,7 +2,7 @@
 //!
 //! 2026-05-17 PR-E 起，本模块承接历史上 `czsc/strategies.py` 的核心抽象，
 //! 让 `cargo add czsc` 的 Rust 用户与 `pip install czsc` 的 Python 用户拿到
-//! 行为一致的策略组装入口（参见 CLAUDE.md「🏛️ 开发宪法 · 第一条」）。
+//! 行为一致的策略组装入口。
 //!
 //! 2026-05-17 PR-G 进一步把 `save_positions` / `load_positions` 整段下沉
 //! Rust：新契约采用 **canonical JSON + SHA256** 作为完整性校验，可在

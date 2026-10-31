@@ -88,7 +88,7 @@ class CzscStrategyBase(ABC):
         实现下沉到 Rust（``czsc._native.strategy_unique_signals`` /
         ``czsc_trader::strategy::unique_signals_across``），保证 ``cargo
         add czsc`` 的 Rust 用户与 ``pip install czsc`` 的 Python 用户拿到
-        完全一致的语义（参见 CLAUDE.md「🏛️ 开发宪法 · 第一条」）。
+        完全一致的语义。
         Python 侧只做一次列表透传，不再维护任何去重 / 排序逻辑。
         """
         return list(_strategy_unique_signals_impl(self.positions))

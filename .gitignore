@@ -112,7 +112,6 @@ venv.bak/
 
 # mypy
 .mypy_cache/
-.claude/settings.local.json
 
 # Test report artifacts
 *backtest_report*.html
@@ -126,7 +125,6 @@ docs/examples/.DS_Store
 # auto-czsc-quant experiment artifacts
 scripts/auto-czsc-quant/results/
 
-# agent runtime artifacts (Multica / Claude Code) — not part of the library
+# agent runtime artifacts (Multica) — not part of the library
 .multica/
 .agent_context/
-.claude/skills/
