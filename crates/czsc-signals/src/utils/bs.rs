@@ -66,6 +66,14 @@ pub struct MacdComparison {
     pub reason: Option<String>,
 }
 
+/// The qualifying price a stage guards over the raw path. `inclusive` means a
+/// price equal to it still qualifies; otherwise touching it ends the stage.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Boundary {
+    pub price: f64,
+    pub inclusive: bool,
+}
+
 /// Indices refer exclusively to this current list (end exclusive).
 #[derive(Debug, Clone)]
 pub struct Point {
@@ -85,6 +93,8 @@ pub struct Point {
     pub parent_chain: Option<[usize; 3]>,
     pub candidate: bool,
     pub macd_comparison: Option<MacdComparison>,
+    /// The binding boundary of this stage, exactly as guarded below.
+    pub boundary: Boundary,
 }
 #[derive(Debug, Clone)]
 pub struct Evaluation {
@@ -149,9 +159,12 @@ fn guard_path(
     end: usize,
     begin: usize,
     direction: Direction,
-    boundary: f64,
-    inclusive: bool,
+    boundary: Boundary,
 ) -> Result<(), &'static str> {
+    let Boundary {
+        price: boundary,
+        inclusive,
+    } = boundary;
     let start = c.bi_list[begin].fx_b.dt;
     let cutoff = if end == c.bi_list.len() {
         c.bars_raw.last().map(|b| b.dt)
@@ -296,6 +309,16 @@ pub fn evaluate_first(c: &CZSC, end: usize, direction: Direction, macd: &MacdSer
         .into(),
         reason: reason.map(str::to_owned),
     };
+    // A first point still qualifies at its departure extreme; only a move
+    // beyond it ends the stage.
+    let boundary = Boundary {
+        price: if direction == Direction::Down {
+            last.get_low()
+        } else {
+            last.get_high()
+        },
+        inclusive: true,
+    };
     let result = Evaluation {
         kind: PointKind::First,
         direction,
@@ -318,6 +341,7 @@ pub fn evaluate_first(c: &CZSC, end: usize, direction: Direction, macd: &MacdSer
             parent_chain: None,
             candidate: false,
             macd_comparison: Some(comparison),
+            boundary,
         }),
     };
     if let Some(reason) = reason {
@@ -328,12 +352,7 @@ pub fn evaluate_first(c: &CZSC, end: usize, direction: Direction, macd: &MacdSer
     }
     // Historical parent anchors are guarded by their second-point path below.
     if end == c.bi_list.len() {
-        let boundary = if direction == Direction::Down {
-            last.get_low()
-        } else {
-            last.get_high()
-        };
-        if let Err(r) = guard_path(c, end, end - 1, direction, boundary, true) {
+        if let Err(r) = guard_path(c, end, end - 1, direction, boundary) {
             return result.reject(r);
         }
     }
@@ -368,11 +387,17 @@ pub fn evaluate_second(
     if !adjacent(&c.bi_list[anchor], &c.bi_list[rebound]) {
         return miss("invalid_rebound");
     }
-    let boundary = if direction == Direction::Down {
-        c.bi_list[anchor].get_low()
-    } else {
-        c.bi_list[anchor].get_high()
+    // Unlike its first-point anchor, a second point ends when the retest
+    // touches the anchor extreme.
+    let guard = Boundary {
+        price: if direction == Direction::Down {
+            c.bi_list[anchor].get_low()
+        } else {
+            c.bi_list[anchor].get_high()
+        },
+        inclusive: false,
     };
+    let boundary = guard.price;
     if forming {
         if end != c.bi_list.len() || !candidate_matches(c, direction, boundary) {
             return miss("no_current_reverse_candidate");
@@ -395,6 +420,7 @@ pub fn evaluate_second(
     p.rebound = Some(rebound);
     p.retest = (!forming).then_some(end - 1);
     p.candidate = forming;
+    p.boundary = guard;
     let result = Evaluation {
         kind: PointKind::Second,
         direction,
@@ -406,7 +432,7 @@ pub fn evaluate_second(
         reason: None,
         point: Some(p),
     };
-    if let Err(r) = guard_path(c, end, anchor, direction, boundary, false) {
+    if let Err(r) = guard_path(c, end, anchor, direction, guard) {
         return result.reject(r);
     }
     result
@@ -457,11 +483,15 @@ pub fn evaluate_third(c: &CZSC, end: usize, direction: Direction, forming: bool)
         return miss("invalid_operands");
     }
     let leave = &c.bi_list[leave_index];
-    let boundary = if direction == Direction::Down {
-        zs.zg
-    } else {
-        zs.zd
+    let guard = Boundary {
+        price: if direction == Direction::Down {
+            zs.zg
+        } else {
+            zs.zd
+        },
+        inclusive: false,
     };
+    let boundary = guard.price;
     let departure = finite_bi(leave)
         && if direction == Direction::Down {
             leave.direction == Direction::Up
@@ -518,9 +548,10 @@ pub fn evaluate_third(c: &CZSC, end: usize, direction: Direction, forming: bool)
             parent_chain: None,
             candidate: forming,
             macd_comparison: None,
+            boundary: guard,
         }),
     };
-    if let Err(r) = guard_path(c, end, leave_index, direction, boundary, false) {
+    if let Err(r) = guard_path(c, end, leave_index, direction, guard) {
         return result.reject(r);
     }
     result
@@ -572,18 +603,39 @@ pub fn evaluate_second_like(
     if last.direction != direction || !adjacent(&c.bi_list[rebound], last) {
         return miss("not_first_retest");
     }
-    let boundary = if direction == Direction::Down {
-        zs.zd
-    } else {
-        zs.zg
+    let core = Boundary {
+        price: if direction == Direction::Down {
+            zs.zd
+        } else {
+            zs.zg
+        },
+        inclusive: false,
     };
     if if direction == Direction::Down {
-        last.get_low() <= boundary
+        last.get_low() <= core.price
     } else {
-        last.get_high() >= boundary
+        last.get_high() >= core.price
     } {
         return miss("boundary_touched");
     }
+    let anchor = parent.first_point_anchor.unwrap();
+    let parent_guard = Boundary {
+        price: if direction == Direction::Down {
+            c.bi_list[anchor].get_low()
+        } else {
+            c.bi_list[anchor].get_high()
+        },
+        inclusive: false,
+    };
+    // Both strict guards hold; the binding one is the first a move can touch.
+    let binding = Boundary {
+        price: if direction == Direction::Down {
+            core.price.max(parent_guard.price)
+        } else {
+            core.price.min(parent_guard.price)
+        },
+        inclusive: false,
+    };
     let result = Evaluation {
         kind: PointKind::SecondLike,
         direction,
@@ -603,27 +655,18 @@ pub fn evaluate_second_like(
             rebound: Some(rebound),
             retest: Some(end - 1),
             first_point_anchor: parent.first_point_anchor,
-            parent_chain: Some([
-                parent.first_point_anchor.unwrap(),
-                parent.rebound.unwrap(),
-                parent.retest.unwrap(),
-            ]),
+            parent_chain: Some([anchor, parent.rebound.unwrap(), parent.retest.unwrap()]),
             candidate: false,
             // The current core entry/departure are not the parent first-point
             // MACD operands. Their original values remain available in bis.
             macd_comparison: None,
+            boundary: binding,
         }),
     };
-    if let Err(r) = guard_path(c, end, rebound, direction, boundary, false) {
+    if let Err(r) = guard_path(c, end, rebound, direction, core) {
         return result.reject(r);
     }
-    let anchor = parent.first_point_anchor.unwrap();
-    let parent_boundary = if direction == Direction::Down {
-        c.bi_list[anchor].get_low()
-    } else {
-        c.bi_list[anchor].get_high()
-    };
-    if let Err(r) = guard_path(c, end, anchor, direction, parent_boundary, false) {
+    if let Err(r) = guard_path(c, end, anchor, direction, parent_guard) {
         return result.reject(r);
     }
     result

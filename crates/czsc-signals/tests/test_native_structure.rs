@@ -770,3 +770,82 @@ fn second_like_determinate_missing_parent_remains_no_match() {
         checked_structure(&c, 1);
     }
 }
+
+#[test]
+fn each_stage_reports_the_binding_boundary_it_guards() {
+    use czsc_signals::utils::bs::Boundary;
+    fn wick(c: &czsc_core::analyze::CZSC, price: f64) -> czsc_core::analyze::CZSC {
+        let mut c = c.clone();
+        c.bars_raw.push(raw(c.bars_raw.len() as i32, price));
+        c
+    }
+    for buy in [true, false] {
+        let flip = |p: f64| if buy { p } else { 40. - p };
+        let past = |b: Boundary| if buy { b.price - 0.01 } else { b.price + 0.01 };
+        let dir = if buy { Direction::Down } else { Direction::Up };
+
+        // First: the departure extreme still qualifies at equality.
+        let c = powered_structure(&[20., 10., 15., 11., 14., 9.].map(flip));
+        let first = |c: &_| evaluate_first(c, 5, dir, &native_macd(c));
+        let b = first(&c).point.unwrap().boundary;
+        assert_eq!(
+            b,
+            Boundary {
+                price: flip(9.),
+                inclusive: true
+            }
+        );
+        assert!(first(&wick(&c, b.price)).confirmed());
+        assert_eq!(first(&wick(&c, past(b))).reason, Some("boundary_touched"));
+
+        // Second-like: the current core edge binds before the parent anchor.
+        let prices = [20., 10., 15., 11., 14., 9., 18., 16., 20., 17., 19., 18.].map(flip);
+        let c = powered_structure(&prices);
+        let parent = evaluate_second(&c, 7, dir, &native_macd(&c), false)
+            .point
+            .unwrap();
+        assert_eq!(
+            parent.boundary,
+            Boundary {
+                price: flip(9.),
+                inclusive: false
+            }
+        );
+        let like = |c: &_| evaluate_second_like(c, 11, dir, &native_macd(c));
+        let b = like(&c).point.unwrap().boundary;
+        assert_eq!(
+            b,
+            Boundary {
+                price: flip(17.),
+                inclusive: false
+            }
+        );
+        assert_eq!(like(&wick(&c, b.price)).reason, Some("boundary_touched"));
+        let snapshot = checked_structure(&c, 1);
+        let reference = snapshot
+            .results
+            .iter()
+            .find(|r| r.kind == PointKind::SecondLike && r.direction == dir)
+            .and_then(|r| r.reference.as_ref())
+            .unwrap();
+        assert_eq!(reference.boundary, Some(b));
+
+        // Third: the core edge it left; touching it ends the stage.
+        let c = powered_structure(
+            &[20., 14., 18., 15., 19., 10., 16., 11., 14.].map(|p| 40. - flip(p)),
+        );
+        let b = evaluate_third(&c, c.bi_list.len(), dir, false)
+            .point
+            .unwrap()
+            .boundary;
+        assert_eq!(
+            b,
+            Boundary {
+                price: if buy { 25. } else { 15. },
+                inclusive: false
+            }
+        );
+        let e = evaluate_third(&wick(&c, b.price), c.bi_list.len(), dir, false);
+        assert_eq!(e.reason, Some("boundary_touched"));
+    }
+}

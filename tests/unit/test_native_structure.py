@@ -95,6 +95,8 @@ def test_stream_geometry_roles_signals_and_forming_are_the_same_owner(bars):
             ref = r["reference"]
             assert ref["basis"] == "bi_proxy"
             assert ref["stage"] == r["status"]
+            # Only a first point still qualifies at its boundary; other stages end on touch.
+            assert ref["boundary"]["inclusive"] is (r["kind"] == "first")
             if r["status"] == "forming_retest":
                 assert r["kind"] in ("second", "third")
                 assert ref["retest"] is None
@@ -349,6 +351,8 @@ def test_second_like_has_direct_native_parent_and_current_core_roles():
     last = rows[981]
     buy = result["direction"] == "Down"
     boundary = reference["centre"]["zd" if buy else "zg"]
+    parent = chain["first_point_anchor"]["low" if buy else "high"]
+    assert reference["boundary"] == {"price": max(boundary, parent) if buy else min(boundary, parent), "inclusive": False}
     c.update(
         czsc.RawBar(
             symbol=last.symbol,
