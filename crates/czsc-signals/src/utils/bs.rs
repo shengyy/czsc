@@ -351,10 +351,10 @@ pub fn evaluate_first(c: &CZSC, end: usize, direction: Direction, macd: &MacdSer
         return result.reject("macd_not_weaker");
     }
     // Historical parent anchors are guarded by their second-point path below.
-    if end == c.bi_list.len() {
-        if let Err(r) = guard_path(c, end, end - 1, direction, boundary) {
-            return result.reject(r);
-        }
+    if end == c.bi_list.len()
+        && let Err(r) = guard_path(c, end, end - 1, direction, boundary)
+    {
+        return result.reject(r);
     }
     result
 }
