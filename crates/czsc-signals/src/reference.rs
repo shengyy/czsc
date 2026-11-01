@@ -93,7 +93,7 @@ impl SignalReference {
     }
 }
 
-use crate::utils::bs::{Evaluation, MacdComparison, Point, PointKind};
+use crate::utils::bs::{Boundary, Evaluation, MacdComparison, Point, PointKind};
 use czsc_core::{analyze::candidate::CandidateStroke, objects::zs::ZsView};
 
 impl ReferenceBi {
@@ -169,6 +169,10 @@ pub struct StructureReference {
     pub b2_chain: Option<B2Chain>,
     pub candidate_stroke: Option<CandidateStroke>,
     pub macd_comparison: Option<MacdComparison>,
+    /// The stage's binding qualifying boundary, as guarded by its evaluator.
+    /// Appended for decoding snapshots written before it existed.
+    #[serde(default)]
+    pub boundary: Option<Boundary>,
 }
 impl StructureReference {
     pub fn capture(c: &CZSC, p: &Point, stage: &str) -> Self {
@@ -213,6 +217,7 @@ impl StructureReference {
             b2_chain: chain,
             candidate_stroke,
             macd_comparison: p.macd_comparison.clone(),
+            boundary: Some(p.boundary),
         }
     }
 }

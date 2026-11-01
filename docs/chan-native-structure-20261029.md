@@ -82,7 +82,7 @@ The separate typed view keeps the original Rust `StructureSnapshot` fields and P
 
 `bis[].finished` remains for reference compatibility; `included_in_finished_bis` names its membership meaning explicitly. `ubi_newbar_count` explains the existing five-NewBar membership rule. Neither means irrevocable endpoint confirmation. No `end_confirmed`, recursive validity, expansion, or two-pivot-trend boolean is added.
 
-`CentreReference` contains `sdt, edt, zd, zg, zz, dd, gg, bi_count, valid, members, entry, departure, retest`. Membership geometry is exactly the native core. Role references are actual BIs, and may lie outside the core's members: in particular the last native departure may not yet belong to the finished prefix. A crossing leg/adjacent retest in raw structural context is not by itself a qualifying buy/sell result. Missing roles are null.
+`CentreReference` contains `sdt, edt, zd, zg, zz, dd, gg, bi_count, valid, members, entry`; departure/retest roles belong only to structure results. Membership geometry is exactly the native core. Role references are actual BIs, and may lie outside the core's members: in particular the last native departure may not yet belong to the finished prefix. A crossing leg/adjacent retest in raw structural context is not by itself a qualifying buy/sell result. Missing roles are null.
 
 ### Stages and operand identity
 
@@ -96,8 +96,11 @@ A result reference includes:
 basis, kind, stage, direction,
 centre { boundaries, members, entry },
 entry, departure, rebound?, retest?, first_point_anchor?,
-b2_chain?, candidate_stroke?, macd_comparison?
+b2_chain?, candidate_stroke?, macd_comparison?,
+boundary { price, inclusive }
 ```
+
+`boundary` is the binding qualifying boundary the stage's evaluator guards over the raw path (buy side: lows; sell side: highs). `inclusive=true` means a price equal to it still qualifies and only a move beyond it ends the stage; `false` means touching it ends the stage. By kind: `first` uses its departure extreme, inclusive; `second` uses its first-point anchor extreme, strict; `third` uses the core edge it left (buy ZG, sell ZD), strict; `second_like` guards both the new-core edge (buy ZD, sell ZG) and the parent anchor extreme, both strict, and reports the one a move reaches first (buy max, sell min). The field is the evaluator's own operand, so consumers do not re-derive it from roles. Snapshots written before `1.0.1+ashare.20261102` decode it as null.
 
 `b2_chain` is a finite `{first_point_anchor, rebound, first_retest}` relation. For forming B2 its `first_retest` is null and the candidate is separate. For `second_like`, the specific new canonical core starts with the concrete B2 retest and its entry is that chain's rebound. After the initial three core members it requires one rebound and the next actual retest, with strict new-core ZD/ZG and original first-point anchor guards. No direct parent mapping → no label. It never chains second-like labels or emits forming second-like results. This narrow canonical mapping is an implementation subset, not a general theory claim.
 
