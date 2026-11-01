@@ -145,7 +145,9 @@ fn borrowed_and_owned_geometry_share_non_finite_and_boundary_rules() {
 }
 
 #[test]
-fn outside_retest_reassigns_two_tail_bis_without_reusing_members() {
+fn outside_retest_closes_the_core_without_reassigning_its_members() {
+    // 19->10 and 16->11 return into [15,18]; 11->14 is the first retest that
+    // stays outside. It closes the core: no tail member moves to a new core.
     for mirror in [false, true] {
         let bis = continuous_bis(&prices(
             &[20., 14., 18., 15., 19., 10., 16., 11., 14., 9.],
@@ -154,29 +156,15 @@ fn outside_retest_reassigns_two_tail_bis_without_reusing_members() {
         let before = get_zs_seq(&bis[..7]);
         assert_eq!(before.len(), 1);
         assert_eq!(before[0].bis.len(), 6);
-        let after = get_zs_seq(&bis[..8]);
-        assert_eq!(
-            after.iter().map(|z| z.bis.len()).collect::<Vec<_>>(),
-            [4, 3]
-        );
-        assert_eq!(after[0].sdt, bis[1].start_dt());
-        assert_eq!(after[0].edt, bis[4].end_dt());
-        assert_eq!(after[1].sdt, bis[5].start_dt());
-        assert_eq!(after[1].edt, bis[7].end_dt());
-        assert_eq!((after[0].zd, after[0].zg), (before[0].zd, before[0].zg));
-        assert_eq!(
-            (after[1].zd, after[1].zg),
-            if mirror { (46., 49.) } else { (11., 14.) }
-        );
-        assert!(after.iter().all(|z| z.is_valid()));
-        assert_eq!(
-            after[0].bis.last().unwrap().fx_b.dt,
-            after[1].bis[0].fx_a.dt
-        );
-        let extended = get_zs_seq(&bis);
-        assert_eq!(extended[0].edt, after[0].edt);
-        assert_eq!(extended[1].bis.len(), 4);
-        assert_eq!((extended[1].zd, extended[1].zg), (after[1].zd, after[1].zg));
+        for n in [8, bis.len()] {
+            let after = get_zs_seq(&bis[..n]);
+            assert_eq!(after.len(), 2);
+            assert_eq!(after[0].bis.len(), 6);
+            assert_eq!((after[0].sdt, after[0].edt), (before[0].sdt, before[0].edt));
+            assert_eq!((after[0].zd, after[0].zg), (before[0].zd, before[0].zg));
+            assert_eq!(after[1].bis[0].fx_a.dt, bis[7].fx_a.dt);
+            assert_eq!(after[1].bis.len(), n - 7);
+        }
     }
 }
 

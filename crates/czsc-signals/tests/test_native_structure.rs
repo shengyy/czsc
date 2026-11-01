@@ -131,6 +131,34 @@ fn macd_coverage_warmup_nonfinite_and_zero_area_are_not_filled_with_zero() {
     assert!(serde_json::to_string(&s).is_ok());
     assert_eq!(s.macd.hist_scale, 1.);
     assert!(s.macd.bars[..33].iter().all(|b| b.hist.is_none()));
+    assert!(checked_structure(&zero, 1).macd.segments.is_empty());
+    // Segments tile every ready bar from the first signed hist, alternating sign.
+    let s = checked_structure(&c, 1);
+    let ready: Vec<_> = s.macd.bars.iter().filter(|b| b.hist.is_some()).collect();
+    let first = ready.iter().position(|b| b.hist != Some(0.)).unwrap();
+    let seg = &s.macd.segments;
+    assert_eq!(
+        seg.iter().map(|x| x.bars).sum::<usize>(),
+        ready.len() - first
+    );
+    assert_eq!(seg[0].sdt, ready[first].dt);
+    assert_eq!(seg.last().unwrap().edt, ready.last().unwrap().dt);
+    assert!(
+        seg.windows(2)
+            .all(|w| w[0].sign == -w[1].sign && w[0].edt < w[1].sdt)
+    );
+    for x in seg {
+        let inside: Vec<_> = ready
+            .iter()
+            .filter(|b| b.dt >= x.sdt && b.dt <= x.edt)
+            .collect();
+        assert_eq!(inside.len(), x.bars);
+        let peak = inside
+            .iter()
+            .map(|b| b.hist.unwrap())
+            .fold(0., |a: f64, h| if h.abs() > a.abs() { h } else { a });
+        assert_eq!((x.peak, x.peak.signum() as i8), (peak, x.sign));
+    }
 }
 
 #[test]
@@ -416,33 +444,50 @@ fn forming_second_and_third_have_native_anchors_but_are_never_confirmed_signals(
                 evaluate_third(&breached, breached.bi_list.len(), direction, true)
             };
             assert_eq!(e.reason, Some("boundary_touched"));
-            // The reverse NewBar remains, but a later raw new extreme invalidates
-            // the fixed anchor. A candidate cannot travel along a breakout.
-            let mut new_high = c.clone();
-            let anchor = prices.last().unwrap();
-            if buy {
-                new_high.bars_raw.last_mut().unwrap().high = anchor + 0.1;
-            } else {
-                new_high.bars_raw.last_mut().unwrap().low = anchor - 0.1;
-            }
-            let e = if second {
-                evaluate_second(
-                    &new_high,
-                    new_high.bi_list.len(),
-                    direction,
-                    &native_macd(&new_high),
-                    true,
-                )
-            } else {
-                evaluate_third(&new_high, new_high.bi_list.len(), direction, true)
-            };
-            assert_eq!(e.reason, Some("anchor_exceeded"));
+            // A later raw extreme beyond the anchor re-identifies the candidate
+            // as an extension of the departure, so no forming retest remains.
+            let anchor = *prices.last().unwrap();
+            let beyond = forming(
+                &prices,
+                &[
+                    if buy { tail } else { 40. - tail },
+                    if buy { anchor + 0.1 } else { anchor - 0.1 },
+                ],
+            );
+            assert_eq!(
+                beyond.get_candidate_stroke().kind.as_deref(),
+                Some("extension")
+            );
+            assert!(
+                !checked_structure(&beyond, 1)
+                    .results
+                    .iter()
+                    .any(|e| e.kind == kind && e.status == "forming_retest")
+            );
         }
     }
 }
 
 #[test]
-fn pure_breakout_extension_and_withdrawn_old_retest_do_not_revive() {
+fn third_point_after_a_long_core_is_not_reassigned_to_a_new_core() {
+    // [15,18] holds six members; the first retest 11->14 stays below zd.
+    for sell in [true, false] {
+        let prices: Vec<_> = [20., 14., 18., 15., 19., 10., 16., 11., 14.]
+            .into_iter()
+            .map(|p| if sell { p } else { 40. - p })
+            .collect();
+        let c = powered_structure(&prices);
+        let direction = if sell { Direction::Up } else { Direction::Down };
+        let e = evaluate_third(&c, c.bi_list.len(), direction, false);
+        assert!(e.confirmed(), "{e:?}");
+        let p = e.point.unwrap();
+        assert_eq!((p.zd, p.zg), if sell { (15., 18.) } else { (22., 25.) });
+        assert_eq!(p.retest, Some(c.bi_list.len() - 1));
+    }
+}
+
+#[test]
+fn pure_breakout_extension_has_no_retest_and_a_rally_keeps_the_confirmed_point() {
     let c = forming(&[10., 20., 15., 19., 16., 24.], &[24.5]);
     assert_eq!(c.get_candidate_stroke().kind.as_deref(), Some("extension"));
     assert!(
@@ -451,11 +496,15 @@ fn pure_breakout_extension_and_withdrawn_old_retest_do_not_revive() {
             .iter()
             .any(|e| e.status == "forming_retest")
     );
+    // Rising beyond the departure high before an upward BI forms continues the
+    // confirmed third buy; only the qualifying boundary can invalidate it.
     let mut old = powered_structure(&[10., 20., 15., 19., 16., 24., 22.]);
     assert!(evaluate_third(&old, 6, Direction::Down, false).confirmed());
     old.bars_raw.push(raw(old.bars_raw.len() as i32, 24.1));
+    assert!(evaluate_third(&old, 6, Direction::Down, false).confirmed());
+    old.bars_raw.push(raw(old.bars_raw.len() as i32, 18.9));
     let e = evaluate_third(&old, 6, Direction::Down, false);
-    assert_eq!(e.reason, Some("anchor_exceeded"));
+    assert_eq!(e.reason, Some("boundary_touched"));
     // A new genuine downward BI is evaluated on its own current latest core.
     let fresh = powered_structure(&[10., 20., 15., 19., 16., 24., 22., 25., 23., 26., 25.]);
     assert!(evaluate_third(&fresh, 10, Direction::Down, false).confirmed());
@@ -485,7 +534,7 @@ fn centre_geometry_is_unchanged_and_di_never_claims_to_be_history() {
         .into_iter()
         .flatten()
     {
-        assert!(zone.retest.is_none_or(|b| b.position <= sliced.bis.len()));
+        assert!(zone.members.iter().all(|b| b.position <= sliced.bis.len()));
     }
     assert_eq!(checked_structure(&c, 0).status, "missing_material");
 }

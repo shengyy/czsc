@@ -123,7 +123,8 @@ def test_czsc_zs_list_matches_finished_bis_analysis() -> None:
 @pytest.mark.parametrize(
     "prices, lengths, bounds",
     [
-        ([20, 14, 18, 15, 19, 10, 16, 11, 14], [4, 3], [(15, 18), (11, 14)]),
+        # 11->14 is the first outside retest: it closes [15,18] with all six members and seeds the next core.
+        ([20, 14, 18, 15, 19, 10, 16, 11, 14, 9, 13], [6, 3], [(15, 18), (11, 13)]),
         ([24, 12, 20, 14, 15, 14.5, 17, 16, 16.5, 11], [5, 3], [(14, 15), (16, 16.5)]),
     ],
 )

@@ -94,7 +94,7 @@ A result reference includes:
 
 ```text
 basis, kind, stage, direction,
-centre { boundaries, members, entry, departure, retest },
+centre { boundaries, members, entry },
 entry, departure, rebound?, retest?, first_point_anchor?,
 b2_chain?, candidate_stroke?, macd_comparison?
 ```
