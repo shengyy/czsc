@@ -52,6 +52,77 @@ pub struct StructureState {
     pub candidate_stroke: CandidateStroke,
     pub results: Vec<StructureResult>,
 }
+/// Candidate price geometry, without the signal owner's role interpretation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CandidateGeometry {
+    pub state: String,
+    pub reason: Option<String>,
+    pub kind: Option<String>,
+    pub direction: Option<Direction>,
+    pub anchor_at: Option<DateTime<Utc>>,
+    pub anchor_price: Option<f64>,
+    pub anchor_price_at: Option<DateTime<Utc>>,
+    pub end_price: Option<f64>,
+    pub end_price_at: Option<DateTime<Utc>>,
+    pub end_newbar_at: Option<DateTime<Utc>>,
+    pub as_of: Option<DateTime<Utc>>,
+}
+
+impl From<CandidateStroke> for CandidateGeometry {
+    fn from(candidate: CandidateStroke) -> Self {
+        Self {
+            state: candidate.state,
+            reason: candidate.reason,
+            kind: candidate.kind,
+            direction: candidate.direction,
+            anchor_at: candidate.anchor_at,
+            anchor_price: candidate.anchor_price,
+            anchor_price_at: candidate.anchor_price_at,
+            end_price: candidate.end_price,
+            end_price_at: candidate.end_price_at,
+            end_newbar_at: candidate.end_newbar_at,
+            as_of: candidate.as_of,
+        }
+    }
+}
+
+impl CandidateGeometry {
+    fn with_role(self, role: String) -> CandidateStroke {
+        CandidateStroke {
+            state: self.state,
+            reason: self.reason,
+            kind: self.kind,
+            direction: self.direction,
+            anchor_at: self.anchor_at,
+            anchor_price: self.anchor_price,
+            anchor_price_at: self.anchor_price_at,
+            end_price: self.end_price,
+            end_price_at: self.end_price_at,
+            end_newbar_at: self.end_newbar_at,
+            as_of: self.as_of,
+            role,
+        }
+    }
+}
+
+/// Native geometry and interval measurements without buy/sell stage evaluation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StructureGeometry {
+    pub basis: String,
+    pub di: usize,
+    pub as_of: Option<DateTime<Utc>>,
+    pub status: String,
+    pub bis: Vec<StrokeFact>,
+    pub ubi_newbar_count: usize,
+    pub previous_zs: Option<CentreReference>,
+    pub latest_finished_zs: Option<CentreReference>,
+    pub zs_candidate: Option<CentreReference>,
+    pub zs_relation: Option<ZsRelation>,
+    pub candidate_stroke: CandidateGeometry,
+    pub candidate_power: Option<IntervalPower>,
+    pub macd: MacdFacts,
+    pub candidate_endpoint_power: Option<IntervalPower>,
+}
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StructureSnapshot {
     pub basis: String,
@@ -91,7 +162,43 @@ fn relation(al: f64, ah: f64, bl: f64, bh: f64) -> String {
 /// no output truncation, no hidden resampling, and no recursive validity claim.
 pub fn get_structure(c: &CZSC, di: usize) -> StructureSnapshot {
     let macd = native_macd(c);
-    let state = evaluate_structure(c, di, &macd);
+    let mut state = evaluate_structure(c, di, &macd);
+    let results = std::mem::take(&mut state.results);
+    let role = std::mem::take(&mut state.candidate_stroke.role);
+    let geometry = capture_geometry(c, di, state, &macd);
+    StructureSnapshot {
+        basis: geometry.basis,
+        di: geometry.di,
+        as_of: geometry.as_of,
+        status: geometry.status,
+        last_signal_bi: geometry.bis.last().cloned(),
+        bis: geometry.bis,
+        ubi_newbar_count: geometry.ubi_newbar_count,
+        previous_zs: geometry.previous_zs,
+        latest_finished_zs: geometry.latest_finished_zs,
+        zs_candidate: geometry.zs_candidate,
+        zs_relation: geometry.zs_relation,
+        candidate_stroke: geometry.candidate_stroke.with_role(role),
+        candidate_power: geometry.candidate_power,
+        macd: geometry.macd,
+        results,
+        candidate_endpoint_power: geometry.candidate_endpoint_power,
+    }
+}
+
+/// Read native strokes, centres, candidates and MACD interval measurements.
+/// No buy/sell stages or qualifying references are evaluated. `di` retains the
+/// same current-list slice semantics as `get_structure`, never historical replay.
+pub fn get_structure_geometry(c: &CZSC, di: usize) -> StructureGeometry {
+    capture_geometry(c, di, structure_operands(c, di), &native_macd(c))
+}
+
+fn capture_geometry(
+    c: &CZSC,
+    di: usize,
+    state: StructureState,
+    macd: &MacdSeries,
+) -> StructureGeometry {
     let n = bs::prefix_end(c, di).unwrap_or(0);
     let bis: Vec<_> = (0..n)
         .map(|i| {
@@ -101,7 +208,7 @@ pub fn get_structure(c: &CZSC, di: usize) -> StructureSnapshot {
                 included_in_finished_bis: i < c.finished_bis_slice().len(),
                 price_amplitude: b.get_power_price(),
                 newbar_count: b.bars.len(),
-                power: bi_power(c, &macd, b),
+                power: bi_power(c, macd, b),
             }
         })
         .collect();
@@ -119,7 +226,7 @@ pub fn get_structure(c: &CZSC, di: usize) -> StructureSnapshot {
             .candidate_stroke
             .anchor_at
             .zip(state.candidate_stroke.as_of)
-            .map(|(s, e)| interval_power(c, &macd, s, e))
+            .map(|(s, e)| interval_power(c, macd, s, e))
     } else {
         None
     };
@@ -128,26 +235,24 @@ pub fn get_structure(c: &CZSC, di: usize) -> StructureSnapshot {
             .candidate_stroke
             .anchor_at
             .zip(state.candidate_stroke.end_price_at)
-            .map(|(s, e)| interval_power(c, &macd, s, e))
+            .map(|(s, e)| interval_power(c, macd, s, e))
     } else {
         None
     };
-    StructureSnapshot {
+    StructureGeometry {
         basis: state.basis,
         di: state.di,
         as_of: state.as_of,
         status: state.status,
-        last_signal_bi: bis.last().cloned(),
         bis,
         ubi_newbar_count: c.bars_ubi.len(),
         previous_zs: state.previous_zs,
         latest_finished_zs: state.latest_finished_zs,
         zs_candidate: state.zs_candidate,
         zs_relation,
-        candidate_stroke: state.candidate_stroke,
+        candidate_stroke: state.candidate_stroke.into(),
         candidate_power,
-        macd: MacdFacts::capture(c, &macd),
-        results: state.results,
+        macd: MacdFacts::capture(c, macd),
         candidate_endpoint_power,
     }
 }
@@ -160,10 +265,9 @@ pub fn get_structure_state(c: &CZSC, di: usize) -> StructureState {
     evaluate_structure(c, di, &native_macd(c))
 }
 
-// The sole stage/identity projection for both public views. Full-only numerical
-// fields live in get_structure, so the light path cannot construct then filter
-// them. MACD is still required for first-point/parent qualification.
-fn evaluate_structure(c: &CZSC, di: usize, macd: &MacdSeries) -> StructureState {
+// The sole native geometry projection for all views. Stage evaluation is a
+// separate consumer, so geometry-only requests never compute then discard it.
+fn structure_operands(c: &CZSC, di: usize) -> StructureState {
     let end = bs::prefix_end(c, di);
     let n = end.unwrap_or(0);
     let finished = c.finished_bis_slice().len().min(n);
@@ -192,7 +296,28 @@ fn evaluate_structure(c: &CZSC, di: usize, macd: &MacdSeries) -> StructureState 
         candidate.kind = None;
         candidate.direction = None;
     }
+    StructureState {
+        basis: "bi_proxy".into(),
+        di,
+        as_of: c.bars_raw.last().map(|b| b.dt),
+        status: if end.is_some() {
+            "ready"
+        } else {
+            "missing_material"
+        }
+        .into(),
+        previous_zs,
+        latest_finished_zs,
+        zs_candidate,
+        candidate_stroke: candidate,
+        results: Vec::new(),
+    }
+}
+
+fn evaluate_structure(c: &CZSC, di: usize, macd: &MacdSeries) -> StructureState {
+    let mut state = structure_operands(c, di);
     let mut evals: Vec<Evaluation> = Vec::new();
+    let end = bs::prefix_end(c, di);
     if let Some(end) = end {
         for dir in [Direction::Down, Direction::Up] {
             evals.push(bs::evaluate_first(c, end, dir, macd));
@@ -219,9 +344,9 @@ fn evaluate_structure(c: &CZSC, di: usize, macd: &MacdSeries) -> StructureState 
         }
     }
     if evals.iter().any(|e| e.status == "forming_retest") {
-        candidate.role = "first_retest_candidate".into();
+        state.candidate_stroke.role = "first_retest_candidate".into();
     }
-    let results = evals
+    state.results = evals
         .iter()
         .map(|e| StructureResult {
             kind: e.kind,
@@ -234,20 +359,5 @@ fn evaluate_structure(c: &CZSC, di: usize, macd: &MacdSeries) -> StructureState 
                 .map(|p| StructureReference::capture(c, p, e.status)),
         })
         .collect();
-    StructureState {
-        basis: "bi_proxy".into(),
-        di,
-        as_of: c.bars_raw.last().map(|b| b.dt),
-        status: if end.is_some() {
-            "ready"
-        } else {
-            "missing_material"
-        }
-        .into(),
-        previous_zs,
-        latest_finished_zs,
-        zs_candidate,
-        candidate_stroke: candidate,
-        results,
-    }
+    state
 }

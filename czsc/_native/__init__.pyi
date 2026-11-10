@@ -36,6 +36,7 @@ __all__ = [
     "create_fake_bis",
     "format_standard_kline",
     "get_structure",
+    "get_structure_geometry",
     "get_structure_state",
     "get_zs_seq",
     "is_bis_down",
@@ -1422,6 +1423,12 @@ def get_structure(c: CZSC, di: builtins.int = 1) -> dict:
     Native BI-proxy structures, role operands, stages and MACD(12,26,9).
     di is a current-list slice, not a historical snapshot. All times are natural
     endpoints/cutoffs; first-known times belong to the caller's prefix observer.
+    """
+
+def get_structure_geometry(c: CZSC, di: builtins.int = 1) -> dict:
+    r"""
+    Native strokes, centres, candidates and MACD without buy/sell stage evaluation.
+    di is a current-list slice, not a historical snapshot.
     """
 
 def get_structure_state(c: CZSC, di: builtins.int = 1) -> dict:
