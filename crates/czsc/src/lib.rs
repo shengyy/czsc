@@ -93,5 +93,6 @@ pub use czsc_trader::sig_parse::SignalConfig;
 pub use czsc_signals::reference::{ReferenceBi, ReferenceKind, ReferenceWindow, SignalReference};
 
 pub use czsc_signals::structure::{
-    StructureSnapshot, StructureState, get_structure, get_structure_state,
+    CandidateGeometry, StructureGeometry, StructureSnapshot, StructureState, get_structure,
+    get_structure_geometry, get_structure_state,
 };

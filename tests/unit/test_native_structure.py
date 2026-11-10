@@ -42,6 +42,10 @@ STATE_FIELDS = {
 def read_structure(c, di=1):
     """Compare every light field with full, including failed operand references."""
     full = czsc.get_structure(c, di=di)
+    geometry = czsc.get_structure_geometry(c, di=di)
+    expected_geometry = {key: copy.deepcopy(value) for key, value in full.items() if key not in {"results", "last_signal_bi"}}
+    del expected_geometry["candidate_stroke"]["role"]
+    assert geometry == expected_geometry
     light = czsc.get_structure_state(c, di=di)
     assert set(light) == STATE_FIELDS
     assert light == {key: full[key] for key in STATE_FIELDS}
@@ -51,6 +55,7 @@ def read_structure(c, di=1):
 
 def test_public_function_is_native_and_missing_material_is_explicit(bars):
     assert czsc.get_structure is czsc._native.get_structure
+    assert czsc.get_structure_geometry is czsc._native.get_structure_geometry
     assert czsc.get_structure_state is czsc._native.get_structure_state
     c = czsc.CZSC(bars[:10])
     s = read_structure(c)

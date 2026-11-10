@@ -33,7 +33,7 @@ use czsc_core::{
     objects::{bar::NewBar, direction::Direction},
 };
 use czsc_signals::{
-    structure::{StructureSnapshot, get_structure, get_structure_state},
+    structure::{StructureSnapshot, get_structure, get_structure_geometry, get_structure_state},
     utils::{
         bi_power::bi_power,
         bs::{PointKind, evaluate_first, evaluate_second, evaluate_second_like, evaluate_third},
@@ -47,6 +47,18 @@ use fixture::{powered_structure, raw};
 fn checked_structure(c: &czsc_core::analyze::CZSC, di: usize) -> StructureSnapshot {
     let full = get_structure(c, di);
     let full_json = serde_json::to_value(&full).unwrap();
+    let geometry = serde_json::to_value(get_structure_geometry(c, di)).unwrap();
+    let mut expected_geometry = full_json.clone();
+    expected_geometry.as_object_mut().unwrap().remove("results");
+    expected_geometry
+        .as_object_mut()
+        .unwrap()
+        .remove("last_signal_bi");
+    expected_geometry["candidate_stroke"]
+        .as_object_mut()
+        .unwrap()
+        .remove("role");
+    assert_eq!(geometry, expected_geometry);
     let light = serde_json::to_value(get_structure_state(c, di)).unwrap();
     assert_eq!(light.as_object().unwrap().len(), 9);
     for key in [

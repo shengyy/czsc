@@ -14,6 +14,15 @@ pub fn get_structure(py: Python<'_>, c: &CZSC, di: usize) -> PyResult<Py<PyDict>
     to_dict(py, &snapshot)
 }
 
+/// Native strokes, centres, candidates and MACD without buy/sell stage evaluation.
+/// di is a current-list slice, not a historical snapshot.
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature=(c,di=1))]
+pub fn get_structure_geometry(py: Python<'_>, c: &CZSC, di: usize) -> PyResult<Py<PyDict>> {
+    to_dict(py, &czsc_signals::structure::get_structure_geometry(c, di))
+}
+
 /// Lightweight native stages, unchanged role references and candidate/core identities.
 /// Same evaluation as get_structure, without all-BI power or per-bar MACD output.
 /// di slices the current list; first-known times belong to the caller's prefix observer.
